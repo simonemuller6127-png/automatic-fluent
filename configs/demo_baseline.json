@@ -1,0 +1,97 @@
+{
+  "case": {
+    "name": "demo_baseline",
+    "mesh_file": "meshes/channel2d_lam.msh",
+    "dim": "2d",
+    "precision": "single",
+    "description": "M1.5 基线：2D 层流通道（LX=0.5m, Re≈342, 入口段 0.17m 后充分发展）。质量守恒闸门 ≤0.5%（Fluent 收敛判据），Δp 对比解析解 12μLv/H²（入口段效应另注）。"
+  },
+  "fluent": {
+    "mode": "real",
+    "parallel": 1,
+    "timeout_s": 600
+  },
+  "physics": {
+    "model": "laminar",
+    "gravity": null
+  },
+  "bc": {
+    "inlet": {
+      "zone": "inlet",
+      "type": "velocity-inlet",
+      "vmag": 0.5,
+      "turb_intensity": 5.0,
+      "turb_viscosity_ratio": 10.0,
+      "set_type": true
+    },
+    "outlet": {
+      "zone": "outlet",
+      "type": "pressure-outlet",
+      "gauge_pressure": 0.0,
+      "set_type": true
+    }
+  },
+  "methods": {
+    "enabled": false
+  },
+  "run": {
+    "n_iter": 300,
+    "wall_zone": "wall-3",
+    "force_file": "forces.lis",
+    "force_report_style": "C3",
+    "reference": {
+      "density": 1.225,
+      "velocity": 0.5,
+      "area": 0.01,
+      "length": 0.5
+    },
+    "convergence": {
+      "residual_target": 0.001,
+      "min_iter": 50,
+      "_note": "Fluent 官方默认收敛判据（残差<1e-3）"
+    },
+    "mesh_check": false,
+    "flux_report": true
+  },
+  "objective": {
+    "type": "coefficient_match",
+    "targets": {},
+    "weights": {},
+    "require_converged": false,
+    "fail_penalty": 1000000
+  },
+  "optimize": {
+    "params": [],
+    "seed": 42,
+    "n_trials": 10,
+    "coarse_fraction": 0.25,
+    "top_k": 2,
+    "wall_clock_budget_s": null,
+    "engine": "auto"
+  },
+  "retry": {
+    "divergence": {
+      "max": 1,
+      "relax_scale": 0.85
+    },
+    "license": {
+      "max": 1,
+      "wait_s": 10
+    },
+    "mesh": {
+      "max": 1
+    },
+    "crash_timeout": {
+      "max": 1
+    }
+  },
+  "template": {
+    "solve": "journals/templates/solve_channel.jou.tmpl",
+    "verified": "live"
+  },
+  "tui": {
+    "vmag_constant_answer": "yes",
+    "ke_production_limiter": "yes",
+    "outlet_pressure_field": "gauge-pressure"
+  }
+}

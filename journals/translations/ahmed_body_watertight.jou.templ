@@ -1,0 +1,74 @@
+; ============================================================
+; @AERO-TRANSLATION ahmed_body_watertight v1（官方示例翻译件 · M3）
+; 来源: ansys/pyfluent examples/00-fluent/ahmed_body_workflow.py
+; 翻译: settings API → datamodel py-exec（与本机 8 次探针验证的语法一致）
+; 状态: 任务链骨架真机验证 ✅；完整链需 CAD 输入（.scdoc/x_t/step，
+;       v222 不支持 STL——官方报错实证）；导入后的任务参数按官方值保留
+; ============================================================
+; @EXPECTED-STEPS init_workflow,import_geometry,local_sizing,surface_mesh,describe_geometry,update_regions,boundary_layers,volume_mesh
+
+(%py-exec "workflow.InitializeWorkflow(WorkflowType=r'Watertight Geometry')")
+(display "; STEP-OK init_workflow")
+(newline)
+
+; ---- Import Geometry（v222: File Name 参数，CAD 格式）----
+(%py-exec "workflow.TaskObject['Import Geometry'].Arguments=dict(**{'File Name': r'{{cad_file}}'})")
+(%py-exec "workflow.TaskObject['Import Geometry'].Execute()")
+(display "; STEP-OK import_geometry")
+(newline)
+
+; ---- Add Local Sizing（官方: 面尺寸控制 ×3，GrowthRate=1.15）----
+(%py-exec "workflow.TaskObject['Add Local Sizing'].Arguments=dict(**{'AddChild': 'yes', 'BOIControlName': r'facesize_main', 'BOIFaceLabelList': [r'{{body_label}}'], 'BOIGrowthRate': 1.15, 'BOISize': {{face_size}}})")
+(%py-exec "workflow.TaskObject['Add Local Sizing'].Execute()")
+(%py-exec "workflow.TaskObject['Add Local Sizing'].InsertCompoundChildTask()")
+(display "; STEP-OK local_sizing")
+(newline)
+
+; ---- BOI 身体（官方: boi_1, BOISize=20 —— 尾流加密，Q4 反馈里"压差主导"时缩小该值）----
+(%py-exec "workflow.TaskObject['Add Local Sizing'].Arguments=dict(**{'AddChild': 'yes', 'BOIControlName': r'boi_1', 'BOIType': 'body-of-influence', 'BOISize': {{boi_size}}})")
+(%py-exec "workflow.TaskObject['Add Local Sizing'].Execute()")
+(%py-exec "workflow.TaskObject['Add Local Sizing'].InsertCompoundChildTask()")
+
+; ---- Generate the Surface Mesh（官方: CurvatureNormalAngle=12, GrowthRate=1.15, MaxSize=50, MinSize=1, SizeFunctions=Curvature）----
+(%py-exec "workflow.TaskObject['Generate the Surface Mesh'].Arguments=dict(**{'CFDSurfaceMeshControls': dict(CurvatureNormalAngle=12, GrowthRate=1.15, MaxSize={{max_size}}, MinSize={{min_size}}, SizeFunctions='Curvature')})")
+(%py-exec "workflow.TaskObject['Generate the Surface Mesh'].Execute()")
+; ---- 官方: ImproveSurfaceMesh（FaceQualityLimit=0.4）----
+(%py-exec "workflow.TaskObject['Improve Surface Mesh'].Arguments=dict(**{'FaceQualityLimit': 0.4})")
+(%py-exec "workflow.TaskObject['Improve Surface Mesh'].Execute()")
+(display "; STEP-OK surface_mesh")
+(newline)
+
+; ---- Describe Geometry（官方: CappingRequired/SetupType 官方字符串）----
+(%py-exec "workflow.TaskObject['Describe Geometry'].Arguments=dict(**{'CappingRequired': 'No', 'SetupType': 'The geometry consists of only fluid regions with no voids'})")
+(%py-exec "workflow.TaskObject['Describe Geometry'].Execute()")
+(display "; STEP-OK describe_geometry")
+(newline)
+
+; ---- Update Boundaries / Update Regions ----
+(%py-exec "workflow.TaskObject['Update Boundaries'].Execute()")
+(%py-exec "workflow.TaskObject['Update Regions'].Execute()")
+(display "; STEP-OK update_regions")
+(newline)
+
+; ---- Add Boundary Layers（官方: smooth-transition, 14 层, Rate=1.15, TransitionRatio=0.5）----
+(%py-exec "workflow.TaskObject['Add Boundary Layers'].AddChildToTask()")
+(%py-exec "workflow.TaskObject['Add Boundary Layers'].InsertCompoundChildTask()")
+(%py-exec "workflow.TaskObject['smooth-transition_1'].Arguments=dict(**{'NumberOfLayers': 14, 'Rate': 1.15, 'TransitionRatio': 0.5})")
+(%py-exec "workflow.TaskObject['Add Boundary Layers'].Execute()")
+(display "; STEP-OK boundary_layers")
+(newline)
+
+; ---- Generate the Volume Mesh（官方: poly-hexcore）----
+(%py-exec "workflow.TaskObject['Generate the Volume Mesh'].Arguments=dict(**{'VolumeFill': 'poly-hexcore'})")
+(%py-exec "workflow.TaskObject['Generate the Volume Mesh'].Execute()")
+(display "; STEP-OK volume_mesh")
+(newline)
+
+; ---- 写网格 → 切求解器 ----
+/file/write-mesh "{{out_mesh}}"
+(display "; STEP-OK write_mesh")
+(newline)
+/switch-to-solution-mode
+(display "; DONE")
+(newline)
+exit

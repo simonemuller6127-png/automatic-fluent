@@ -1,0 +1,16 @@
+{
+  "name": "automatic-fluent",
+  "owner": {
+    "name": "simonemuller6127-png"
+  },
+  "plugins": [
+    {
+      "name": "automatic-fluent",
+      "source": "./",
+      "description": "Fluent 自动化调参 harness：模板库 + 错误反馈协议 + optuna 试参闭环 + MCP 桥（aero_doctor/aero_run/aero_optimize/aero_pipeline/aero_results）",
+      "version": "0.1.0",
+      "category": "simulation",
+      "tags": ["fluent", "cfd", "automation"]
+    }
+  ]
+}

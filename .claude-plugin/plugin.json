@@ -1,0 +1,11 @@
+{
+  "name": "automatic-fluent",
+  "version": "0.1.0",
+  "description": "aeroharness — Fluent 自动化调参 harness：journal 主路线模板库 + 哨兵错误反馈协议 + optuna 两级试参闭环 + 报错知识库 + 后处理反馈引擎。真机验证于 Fluent 2022 R2。",
+  "author": {
+    "name": "simonemuller6127-png"
+  },
+  "keywords": ["fluent", "cfd", "simulation", "automation", "optimization", "journal"],
+  "license": "MIT",
+  "homepage": "https://github.com/simonemuller6127-png/automatic-fluent"
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "cline-marketplace-v1",
+  "name": "automatic-fluent",
+  "publisher": "simonemuller6127-png",
+  "version": "0.1.0",
+  "description": "Fluent 自动化调参 harness（journal 主路线）：MCP 工具 aero_doctor/aero_run/aero_optimize/aero_pipeline/aero_results + aero-fluent skill（模板库规则/错误知识库/反馈闭环）",
+  "mcpServers": [
+    {
+      "name": "aero-fluent",
+      "command": "python",
+      "args": ["tools/mcp_server.py"],
+      "cwd": "${workspaceFolder}",
+      "description": "aeroharness MCP 桥（需仓库工作区；pip install mcp）"
+    }
+  ],
+  "skills": [
+    {
+      "name": "aero-fluent",
+      "path": "skills/aero-fluent/SKILL.md"
+    }
+  ],
+  "repository": "https://github.com/simonemuller6127-png/automatic-fluent",
+  "license": "MIT"
+}

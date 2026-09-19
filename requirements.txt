@@ -1,0 +1,6 @@
+# aeroharness 依赖清单（调研报告 7.1：journal 主路线依赖极简）
+# 核心链路零硬依赖 —— 全部标准库即可运行（journal 路线 6.2 版本锁定表）。
+# 以下为可选增强，缺失时代码自动降级，装不装都不影响跑通：
+optuna>=3.6          # M5 优化闭环 TPE 引擎（缺失时用内置“随机+局部精修”）
+pyyaml>=6.0          # 支持 .yaml 配置（缺失时仅支持 .json，本项目配置全用 .json）
+mcp>=1.9             # L3 MCP 桥 tools/mcp_server.py（缺失时不启用 MCP 接入）

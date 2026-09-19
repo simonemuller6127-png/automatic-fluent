@@ -1,0 +1,48 @@
+; ============================================================
+; @AERO-TEMPLATE solve_channel v1  (aeroharness journal 模板库)
+; 适用 Fluent : 2022R2(v222) / 2023R1(v231) —— journal/TUI 跨版本稳定语法
+; 物理场景    : 3D 通道外掠演示算例（k-epsilon），用于 M1 最小闭环 / M1.5 基线校验
+; 来源        : aeroharness M1 模板；mock 全链路验证；真跑前按
+;               references/prompt_calibration.md 校准 config.tui.* 应答序列
+; 生成参数快照:
+{{params_kv_lines}}
+; ============================================================
+; @EXPECTED-STEPS {{expected_steps}}
+; 说明: 空段（如无重力、未开 methods）由生成器整体删除，勿手工增删哨兵；
+;       LLM/程序只允许改 config 参数，不允许改本文件语法（6.8.1 铁律）。
+
+; ---- Step: 读网格（求解器模式用 read-case，.msh/.cas.h5 均可；read-mesh 是 Meshing 模式命令）----
+/file/read-case {{mesh_file}}
+(display "; STEP-OK read_mesh")
+(newline)
+
+{{model_section}}
+
+{{gravity_section}}
+
+{{bc_section}}
+
+{{methods_section}}
+
+; ---- Step: 初始化（标准初始化，all-zones 默认值，E10 10.3 Step2.1 同款）----
+/solve/initialize/initialize-flow
+(display "; STEP-OK initialize")
+(newline)
+
+; ---- Step: 迭代 ----
+/solve/iterate {{n_iter}}
+(display "; STEP-OK iterate")
+(newline)
+
+{{report_section}}
+
+{{flux_section}}
+
+{{quality_section}}
+
+; ---- Step: 握手与收尾（6.9 第 2 层：文件级握手，超时/崩溃=无握手=明确失败）----
+(if (not (file-exists? "result.ok")) (let ((p (open-output-file "result.ok"))) (display "ok" p) (newline p) (close-output-port p)))
+(display "; DONE")
+(newline)
+exit
+y

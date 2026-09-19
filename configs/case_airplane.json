@@ -1,0 +1,96 @@
+{
+  "case": {
+    "name": "case_airplane",
+    "mesh_file": "REPLACE_WITH_YOUR_MESH.msh.h5",
+    "dim": "3d",
+    "precision": "double",
+    "description": "E10 飞机外流场算例（200 m/s，k-epsilon+SWF，重力 -9.81z）。mesh_file 请替换为你的网格（E10 DM/Meshing 生成导出）；首次真跑前按 references/prompt_calibration.md 校准 tui 应答序列并把 template.verified 改为 live。"
+  },
+  "fluent": {
+    "mode": "real",
+    "exe": "D:/Ansys-2023R1/ANSYS Inc/v222/fluent/ntbin/win64/fluent.exe",
+    "parallel": 10,
+    "timeout_s": 14400
+  },
+  "physics": {
+    "model": "ke-standard",
+    "gravity": [0.0, 0.0, -9.81]
+  },
+  "bc": {
+    "inlet": {
+      "zone": "inlet",
+      "type": "velocity-inlet",
+      "vmag": 200.0,
+      "turb_intensity": 5.0,
+      "turb_viscosity_ratio": 10.0,
+      "set_type": false
+    },
+    "outlet": {
+      "zone": "outlet",
+      "type": "pressure-outlet",
+      "gauge_pressure": 0.0,
+      "set_type": false
+    }
+  },
+  "methods": {
+    "enabled": true,
+    "pressure": 2,
+    "momentum": 2,
+    "turb_kinetic": 2,
+    "turb_dissipation": 2,
+    "relax_momentum": 0.7,
+    "relax_k": 0.7,
+    "relax_epsilon": 0.7
+  },
+  "run": {
+    "n_iter": 500,
+    "wall_zone": "wall.feiiji",
+    "force_file": "forces.lis",
+    "force_report_style": "C3",
+    "reference": {
+      "density": 1.225,
+      "velocity": 200.0,
+      "area": 1.0,
+      "length": 1.0,
+      "_note": "A1 参考面积 E10 明确说无统一定论：按试验/文献选定后改 area"
+    },
+    "convergence": { "residual_target": 1e-3, "min_iter": 100 },
+    "mesh_check": true
+  },
+  "objective": {
+    "type": "coefficient_match",
+    "targets": { "cd": 0.038623359, "cl": -0.039298652 },
+    "weights": { "cd": 1.0, "cl": 1.0 },
+    "require_converged": true,
+    "fail_penalty": 1000000
+  },
+  "optimize": {
+    "params": [
+      { "name": "bc.inlet.turb_intensity", "type": "float", "low": 1.0, "high": 20.0 },
+      { "name": "bc.inlet.turb_viscosity_ratio", "type": "float", "low": 1.0, "high": 20.0 },
+      { "name": "methods.relax_momentum", "type": "float", "low": 0.5, "high": 0.9 },
+      { "name": "methods.relax_k", "type": "float", "low": 0.5, "high": 0.9 }
+    ],
+    "seed": 42,
+    "n_trials": 10,
+    "coarse_fraction": 0.25,
+    "top_k": 2,
+    "wall_clock_budget_s": 21600,
+    "engine": "auto"
+  },
+  "retry": {
+    "divergence": { "max": 2, "relax_scale": 0.85 },
+    "license": { "max": 2, "wait_s": 60 },
+    "mesh": { "max": 1 },
+    "crash_timeout": { "max": 1 }
+  },
+  "template": {
+    "solve": "journals/templates/solve_airplane.jou.tmpl",
+    "verified": false
+  },
+  "tui": {
+    "vmag_constant_answer": "yes",
+    "ke_production_limiter": "yes",
+    "outlet_pressure_field": "gauge-pressure"
+  }
+}

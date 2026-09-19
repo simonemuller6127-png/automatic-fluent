@@ -1,0 +1,54 @@
+; ============================================================
+; @AERO-TRANSLATION external_compressible_flow v1（官方示例翻译件）
+; 来源: ansys/pyfluent examples/00-fluent/external_compressible_flow.py
+;       （跨音速机翼: M0.8395, AoA 3.06°, k-ω SST, 理想气体+Sutherland）
+; 翻译: settings API → journal/TUI；对照表见 docs/official_examples_translation.md
+; 状态: 物理设置 1:1 保留；标注"待探针"的行首次真跑前需按
+;       prompt_calibration.md 定案（demo 通道不含可压缩 far-field 场景）
+; ============================================================
+; @EXPECTED-STEPS {{expected_steps}}
+
+/file/read-case {{mesh_file}}
+(display "; STEP-OK read_mesh")
+(newline)
+
+; ---- 官方: viscous.model="k-omega", k_omega_model="sst" ----
+/define/models/viscous/kw-sst yes
+(display "; STEP-OK setup_models")
+(newline)
+
+; ---- 官方: ideal-gas + Sutherland 三系数（1.716e-5 @273.11K, 110.56K）----
+; ⏳待探针: change-create 的 prompt 链（密度选项/单位/粘性选项/系数逐项）
+/define/materials/change-create air air ideal-gas no no sutherland three-coefficient 1.716e-05 273.11 110.56 no
+(display "; STEP-OK materials")
+(newline)
+
+; ---- 官方: operating_pressure=80600 ----
+; ⏳待探针
+/define/operating-conditions/operating-pressure 80600
+(display "; STEP-OK operating_pressure")
+(newline)
+
+{{bc_section}}
+
+; ---- 官方 docstring: pressure-based coupled + pseudo time stepping ----
+; 耦合方案（⏳待探针: v222 代码可能是 24）
+; /solve/set/p-v-coupling 24
+
+/solve/initialize/hyb-initialization
+(display "; STEP-OK initialize")
+(newline)
+
+/solve/iterate {{n_iter}}
+(display "; STEP-OK iterate")
+(newline)
+
+{{report_section}}
+
+{{quality_section}}
+
+(if (not (file-exists? "result.ok")) (let ((p (open-output-file "result.ok"))) (display "ok" p) (newline p) (close-output-port p)))
+(display "; DONE")
+(newline)
+exit
+y

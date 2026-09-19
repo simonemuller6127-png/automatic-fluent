@@ -1,0 +1,140 @@
+{
+  "case": {
+    "name": "demo_channel",
+    "mesh_file": "meshes/channel_box.stl",
+    "dim": "3d",
+    "precision": "single",
+    "description": "2D 通道演示算例（meshes/channel2d.msh 由 tools/make_demo_msh.py 生成）。已用真实 Fluent 2022R2(v222) 全链路验证（read-case→ke-standard→BC→init→iterate→forces→解析）。mode=mock 时目标量对齐 E10 飞机参考值（Cd 0.0386/Cl -0.0393）验证优化闭环；真跑时 cd/cl 为通道真实物理值，调参目标请按需修改 objective.targets。真跑参数见 README『真实 Fluent 运行』一节。"
+  },
+  "fluent": {
+    "mode": "mock",
+    "exe": null,
+    "parallel": 2,
+    "timeout_s": 600
+  },
+  "physics": {
+    "model": "ke-standard",
+    "gravity": null
+  },
+  "bc": {
+    "inlet": {
+      "zone": "inlet",
+      "type": "velocity-inlet",
+      "vmag": 200.0,
+      "turb_intensity": 5.0,
+      "turb_viscosity_ratio": 10.0,
+      "set_type": false
+    },
+    "outlet": {
+      "zone": "outlet",
+      "type": "pressure-outlet",
+      "gauge_pressure": 0.0,
+      "set_type": false
+    }
+  },
+  "methods": {
+    "enabled": false
+  },
+  "run": {
+    "n_iter": 60,
+    "wall_zone": "wall-3",
+    "force_file": "forces.lis",
+    "force_report_style": "C3",
+    "reference": {
+      "density": 1.225,
+      "velocity": 200.0,
+      "area": 1.0,
+      "length": 1.0
+    },
+    "convergence": {
+      "residual_target": 0.001,
+      "min_iter": 10
+    },
+    "mesh_check": true
+  },
+  "objective": {
+    "type": "coefficient_match",
+    "targets": {
+      "cd": 0.0386,
+      "cl": -0.0393
+    },
+    "weights": {
+      "cd": 1.0,
+      "cl": 1.0
+    },
+    "require_converged": false,
+    "fail_penalty": 1000000
+  },
+  "optimize": {
+    "params": [
+      {
+        "name": "bc.inlet.turb_intensity",
+        "type": "float",
+        "low": 1.0,
+        "high": 20.0
+      },
+      {
+        "name": "bc.inlet.turb_viscosity_ratio",
+        "type": "float",
+        "low": 1.0,
+        "high": 20.0
+      },
+      {
+        "name": "methods.relax_momentum",
+        "type": "float",
+        "low": 0.5,
+        "high": 0.95
+      }
+    ],
+    "seed": 42,
+    "n_trials": 10,
+    "coarse_fraction": 0.25,
+    "top_k": 2,
+    "wall_clock_budget_s": null,
+    "engine": "auto"
+  },
+  "retry": {
+    "divergence": {
+      "max": 2,
+      "relax_scale": 0.85
+    },
+    "license": {
+      "max": 2,
+      "wait_s": 5
+    },
+    "mesh": {
+      "max": 1
+    },
+    "crash_timeout": {
+      "max": 1
+    }
+  },
+  "template": {
+    "solve": "journals/templates/solve_channel.jou.tmpl",
+    "verified": "live"
+  },
+  "tui": {
+    "vmag_constant_answer": "yes",
+    "ke_production_limiter": "yes",
+    "outlet_pressure_field": "gauge-pressure"
+  },
+  "pipeline": {
+    "geometry": {
+      "enabled": false,
+      "_note": "SpaceClaim 无头脚本就绪但本机 SCDM 脚本执行被环境门控（见 README M2）；启用前先人工验证一次 RunScript"
+    },
+    "mesh": {
+      "enabled": true,
+      "generator": "tools/make_demo_msh.py",
+      "out": "meshes/channel2d.msh",
+      "args": []
+    },
+    "solve": {
+      "enabled": true
+    },
+    "optimize": {
+      "enabled": false,
+      "trials": 10
+    }
+  }
+}

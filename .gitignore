@@ -1,0 +1,23 @@
+# ---- 运行产物（本机生成，不入库）----
+runs/
+
+# ---- 第三方/受限材料 ----
+# refs/: 官方示例原文件（github 拉取）；翻译件已内置于 journals/translations
+refs/
+# OpenFOAM 教程网格（GPL），仅本地格式校准用
+meshes/ref_elbow.msh
+
+# ---- 探针临时变体（生成器可复现）----
+meshes/*_bin.stl
+meshes/*_crlf.stl
+
+# ---- Python ----
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# ---- 临时 ----
+*.tmp
+.DS_Store
+Thumbs.db

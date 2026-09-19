@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "aero-fluent": {
+      "command": "python",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/tools/mcp_server.py"],
+      "env": {}
+    }
+  }
+}

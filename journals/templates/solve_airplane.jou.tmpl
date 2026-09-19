@@ -1,0 +1,53 @@
+; ============================================================
+; @AERO-TEMPLATE solve_airplane v1  (aeroharness journal 模板库)
+; 适用 Fluent : 2022R2(v222) / 2023R1(v231) —— journal/TUI 跨版本稳定语法
+; 物理场景    : 飞机外流场 200 m/s 巡航阻力/升力计算
+;               （E10《Fluent 2023 外流场及其计算实例》设置映射：
+;                 入口速度 200 m/s、压力出口 0 Pa、k-epsilon 标准壁面函数、
+;                 重力 z=-9.81、二阶离散、标准初始化 all-zones、壁面受力报告）
+; 参考结果    : Cd≈0.038623359  Cl≈-0.039298652（E10 第 53 页，wall.feiiji）
+; 注意        : 首次真跑前必须按 references/prompt_calibration.md 校准
+;               config.tui.* 应答序列（vmag 常数应答 / wall-forces 序列 /
+;               离散格式代码 / 松弛因子菜单名），verified=false 时批量优化被拒。
+; 生成参数快照:
+{{params_kv_lines}}
+; ============================================================
+; @EXPECTED-STEPS {{expected_steps}}
+; 说明: 空段由生成器整体删除，勿手工增删哨兵；
+;       LLM/程序只允许改 config 参数，不允许改本文件语法（6.8.1 铁律）。
+
+; ---- Step: 读网格（求解器模式用 read-case，.msh/.cas.h5 均可；read-mesh 是 Meshing 模式命令）----
+/file/read-case {{mesh_file}}
+(display "; STEP-OK read_mesh")
+(newline)
+
+{{model_section}}
+
+{{gravity_section}}
+
+{{bc_section}}
+
+{{methods_section}}
+
+; ---- Step: 初始化（标准初始化，all-zones 默认值）----
+/solve/initialize/initialize-flow
+(display "; STEP-OK initialize")
+(newline)
+
+; ---- Step: 迭代 ----
+/solve/iterate {{n_iter}}
+(display "; STEP-OK iterate")
+(newline)
+
+{{report_section}}
+
+{{flux_section}}
+
+{{quality_section}}
+
+; ---- Step: 握手与收尾（6.9 第 2 层）----
+(if (not (file-exists? "result.ok")) (let ((p (open-output-file "result.ok"))) (display "ok" p) (newline p) (close-output-port p)))
+(display "; DONE")
+(newline)
+exit
+y
