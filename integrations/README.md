@@ -37,6 +37,26 @@
 - 仓库含 `.cline/marketplace.json`（MCP server + skill 声明）；
 - 手动方式：Cline MCP 面板添加 stdio server `python tools/mcp_server.py`（cwd=仓库根）。
 
+## DeepSeek Harness（dsh）
+
+- Skill 一步安装：`SKILL.md` 丢进 `~/.agents/skills/<name>/` 即生效（与 zcode 同目录，
+  本仓库 skill 已同时覆盖两者）；
+- 社区市场 [dsh-agent-plugins-market](https://github.com) 支持注入 Claude Code / Codex
+  格式的插件——本仓库的 `.claude-plugin/` 与 `.codex/skills/` 即兼容格式，可直接被
+  dsh 市场拉取注入；MCP server 按 DSH 的 MCP 配置方式登记（Cordis 插件体系内置 MCP 支持）。
+
+## 本机自动安装状态（2026-09-20 由 aeroharness 执行，均有配置备份 *.bak-aero-*）
+
+| Agent | Skill | MCP 注册 | 验证 |
+|---|---|---|---|
+| zcode | `~/.agents/skills/aero-fluent` ✅ | `.zcode/v2/config.json` mcp.servers ✅ | 重启 zcode 后生效 |
+| DSH | `~/.agents/skills/aero-fluent` ✅（同目录） | Cordis MCP（同 zcode 路线） | 重启 dsh 后生效 |
+| Codex | `~/.codex/skills/aero-fluent` ✅ | `config.toml` mcp_servers + **仓库已挂为 marketplace** ✅ | 重启 codex 后生效 |
+| Claude Code | 仓库 marketplace | `~/.claude.json` mcpServers ✅ | `claude plugin marketplace add simonemuller6127-png/automatic-fluent` |
+| Cline | `.cline/marketplace.json` | `cline_mcp_settings.json` 合并 ✅ | VSCode 重载 Cline 后生效 |
+
+端到端验证：MCP stdio 握手 → 5 工具列表 → `aero_results` 实调通过（2026-09-20）。
+
 ## 通用兜底（任何 agent 都可用）
 
 不接 MCP/skill 也能全功能使用——CLI 即是 L2 主入口：
