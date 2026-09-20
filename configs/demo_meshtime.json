@@ -1,0 +1,57 @@
+{
+  "case": {
+    "name": "demo_meshtime",
+    "mesh_file": "meshes/opt_trial.msh",
+    "dim": "2d",
+    "precision": "single",
+    "description": "网格面数×求解时间联合优化演示：NX（流向网格数 10~60）作为优化维度，每个 trial 按参数重生成网格；目标 = 精度项(Cd/Cl 相对误差) + λ·max(0, ln(面数/参考面数))。mock 的离散误差 ~0.5/NX，理论最优 NX≈k/λ≈27（即约 107 单元）——验证优化器在‘更准’与‘更省’之间取平衡，而不是无脑用最密的网格。"
+  },
+  "fluent": { "mode": "mock", "exe": null, "parallel": 1, "timeout_s": 600 },
+  "physics": { "model": "ke-standard", "gravity": null },
+  "bc": {
+    "inlet": { "zone": "inlet", "type": "velocity-inlet", "vmag": 200.0,
+                "turb_intensity": 5.0, "turb_viscosity_ratio": 10.0, "set_type": false },
+    "outlet": { "zone": "outlet", "type": "pressure-outlet", "gauge_pressure": 0.0,
+                 "set_type": false }
+  },
+  "methods": { "enabled": false },
+  "run": {
+    "n_iter": 60, "wall_zone": "wall-3", "force_file": "forces.lis",
+    "force_report_style": "C3",
+    "reference": { "density": 1.225, "velocity": 200.0, "area": 1.0, "length": 1.0 },
+    "convergence": { "residual_target": 1e-3, "min_iter": 10 },
+    "mesh_check": false
+  },
+  "objective": {
+    "type": "coefficient_match",
+    "targets": { "cd": 0.0386, "cl": -0.0393 },
+    "weights": { "cd": 1.0, "cl": 1.0 },
+    "require_converged": false,
+    "fail_penalty": 1000000,
+    "mesh_cost": { "lambda": 0.03, "ref_cells": 80 }
+  },
+  "optimize": {
+    "params": [
+      { "name": "methods.relax_momentum", "type": "float", "low": 0.5, "high": 0.95 }
+    ],
+    "mesh_params": [
+      { "name": "NX", "type": "int", "low": 10, "high": 60 }
+    ],
+    "mesh_generator": {
+      "generator": "tools/make_demo_msh.py",
+      "out": "meshes/opt_trial.msh",
+      "fixed_args": ["NY=4", "LX=0.1"]
+    },
+    "seed": 7, "n_trials": 16, "coarse_fraction": 0.25, "top_k": 2,
+    "wall_clock_budget_s": null, "engine": "auto"
+  },
+  "retry": {
+    "divergence": { "max": 2, "relax_scale": 0.85 },
+    "license": { "max": 1, "wait_s": 5 },
+    "mesh": { "max": 1 },
+    "crash_timeout": { "max": 1 }
+  },
+  "template": { "solve": "journals/templates/solve_channel.jou.tmpl", "verified": "offline" },
+  "tui": { "vmag_constant_answer": "yes", "ke_production_limiter": "yes",
+            "outlet_pressure_field": "gauge-pressure" }
+}

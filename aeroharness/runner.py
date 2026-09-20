@@ -58,7 +58,13 @@ def _path_exists(cfg: dict, dotted: str) -> bool:
 
 
 def _apply_params(cfg: dict, params: dict) -> dict:
+    journal_extras = cfg.setdefault("journal_kv_extras", {})
     for dotted, value in (params or {}).items():
+        if dotted.startswith("mesh."):
+            # 网格维度参数（optimize 采样）：不是 config 配置路径，透传进 journal
+            # PARAM 快照（mock/审计用；真实求解器忽略注释行）
+            journal_extras[dotted] = value
+            continue
         if not _path_exists(cfg, dotted):
             raise KeyError(f"未知参数路径: {dotted}（必须是配置中已存在的点路径，如 bc.inlet.vmag）")
         set_by_path(cfg, dotted, value)

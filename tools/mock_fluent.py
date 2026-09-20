@@ -86,6 +86,14 @@ def response_surface(params: dict) -> tuple[float, float]:
     cd_rel = g(ti, 5, 0.012, 0.02) * g(tvr, 10, 0.006, 0.01) * g(rm, 0.9, -0.2, 4.0)
     cl_rel = g(ti, 5, -0.008, 0.015) * g(tvr, 10, 0.004, 0.008) * g(rm, 0.9, -0.18, 3.0)
 
+    # 网格离散误差（Q：网格面数×时间联合优化的响应面维度）：
+    # 网格越粗误差越大（~1/NX，经典一阶离散误差形态），NX 缺省=0 表示网格不参与
+    nx = pick(params, "mesh.NX", "NX", default=0)
+    if nx and nx > 0:
+        disc = 0.5 / nx
+        cd_rel *= (1.0 + disc)
+        cl_rel *= (1.0 + 0.6 * disc)
+
     key_src = json.dumps({k: params[k] for k in sorted(params)
                           if any(t in k for t in ("turb", "relax", "vmag"))}, sort_keys=True)
     seed = int(hashlib.md5(key_src.encode("utf-8")).hexdigest()[:8], 16)
@@ -162,7 +170,10 @@ def main(argv) -> int:
                     fail(f"Error: Failed to open mesh file {mesh_path}: No such file or directory")
                     continue
                 print(line, flush=True)
-                print("  Mesh Statistics: cells=2000, faces=4200, nodes=1210 (mock)", flush=True)
+                nx_mock = pick(params, "mesh.NX", "NX", default=0)
+                cells = int(nx_mock * 4) if nx_mock else 2000
+                print(f"  Mesh Statistics: cells={cells}, faces={int(cells*2.3)}, "
+                      f"nodes={int(cells*0.6)} (mock)", flush=True)
                 emit_marker("; STEP-OK read_mesh")
             elif "viscous" in line:
                 print(line, flush=True)

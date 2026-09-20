@@ -231,6 +231,7 @@ def render_journal(cfg: dict, params: dict | None, run_id: str, attempt: int) ->
         "force_report_style": cfg["run"]["force_report_style"],
     }
     kv.update(params)  # 调参项覆盖快照（mock 与审计都用）
+    kv.update(cfg.get("journal_kv_extras") or {})  # mesh.* 等透传维度（runner 注入）
 
     # BC 段内 inlet/outlet 各带一个哨兵，失败归属更细
     inlet_lines = [ln for ln in build_bc_lines(cfg) if "velocity-inlet" in ln or ln.startswith("/mesh")]

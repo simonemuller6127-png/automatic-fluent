@@ -107,6 +107,22 @@ zero-dependency pattern-search fallback engine; execution goes through the runne
 wake refinement vs y+ tuning direction), residual history CSV, reversed-flow detection →
 `tuning_hints` in `summary.json` automatically propose the next round of parameter moves.
 
+### Joint mesh-count × solve-time optimization (demo_meshtime)
+
+Mesh density is itself an optimization dimension: `optimize.mesh_params` samples mesh
+parameters (e.g. NX) and **regenerates the mesh per trial** before solving; the objective
+adds a mesh cost term `λ·max(0, ln(cells/ref_cells))` (cell count ∝ solve time). The
+accuracy term pushes the mesh toward "accurate", the cost term toward "cheap" — the
+optimum is their marginal balance: the classic mesh-convergence/cost tradeoff, automated.
+
+```bash
+python run_pipeline.py optimize --config configs/demo_meshtime.json --trials 16
+```
+
+Measured (mock, seed=7): theoretical balance NX≈27 (λ=0.03, discretization error ~0.5/NX);
+the optimizer converged to **NX=25 (100 cells)** instead of the 240-cell search maximum;
+`trials.csv` carries `cells / mesh_cost / accuracy` audit columns.
+
 ## Field-calibration findings (2026-09-20, Fluent 2022 R2 / v222)
 
 Full log in `skills/aero-fluent/references/prompt_calibration.md` (Section 5). Highlights:

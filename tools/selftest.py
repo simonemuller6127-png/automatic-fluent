@@ -334,6 +334,22 @@ def test_new_modules():
           "InitializeWorkflow" in j and "Import Geometry" in j and "; DONE" in j)
 
 
+def test_mesh_time():
+    print("[8] 网格面数×求解时间联合优化")
+    cfg = load_config(ROOT / "configs" / "demo_meshtime.json")
+    cfg["case"]["name"] = "selftest_mesh"
+    rep = run_optimization(cfg, n_trials=16, engine="builtin")
+    best = rep["best"]
+    nx = best["params"]["NX"]
+    # 理论平衡点：acc≈0.8/NX，cost=0.03·ln(NX/20) → NX*≈27（约 107 单元）
+    check("最优网格密度落在成本-精度平衡带 (NX 18~42)", 18 <= nx <= 42, f"NX={nx}")
+    check("best 记录面数与精度分量", best["cells"] == nx * 4 and best["accuracy"] is not None,
+          str(best))
+    check("trials 行含网格成本审计列", any(r.get("mesh_cost") is not None for r in rep["rows"]))
+    # 成本项有效性：最优面数应明显小于搜索上限（NX=60 → 240 单元）
+    check("成本项抑制了“无脑最密网格”", nx < 55, f"NX={nx}")
+
+
 def main() -> int:
     t0 = time.time()
     print("== aeroharness 离线全链路自测 ==")
@@ -344,6 +360,7 @@ def main() -> int:
     test_mock_pipeline()
     test_optimize()
     test_new_modules()
+    test_mesh_time()
     print(f"\n== 结果: PASS={len(PASS)} FAIL={len(FAIL)}  用时 {time.time()-t0:.1f}s ==")
     if FAIL:
         print("失败用例: " + ", ".join(FAIL))

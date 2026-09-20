@@ -94,6 +94,21 @@ demo 对齐 E10 的 Cd/Cl）。
 **反馈闭环**（真跑实证）：阻力分解（压差/粘性占比 → 尾流加密 vs y+ 调参方向）、
 残差历史 CSV、出口回流告警检测 → `summary.json` 的 `tuning_hints` 自动给出下一轮调参建议。
 
+### 网格面数 × 求解时间联合优化（demo_meshtime）
+
+网格密度本身也是优化维度：`optimize.mesh_params` 采样网格参数（如 NX），
+每个 trial **按参数重生成网格**再求解；目标函数加入网格成本项
+`λ·max(0, ln(面数/参考面数))`（面数∝求解时间）。精度项把网格往"准"推、
+成本项往"省"推，最优点即两者的边际平衡——经典的网格收敛性-成本权衡的自动化形态。
+
+```bash
+python run_pipeline.py optimize --config configs/demo_meshtime.json --trials 16
+```
+
+实测（mock，seed=7）：理论平衡点 NX≈27（λ=0.03、离散误差~0.5/NX），
+优化器收敛到 **NX=25（100 单元）**，而不是搜索上限的 240 单元；
+`trials.csv` 带 `cells / mesh_cost / accuracy` 审计列。
+
 ## 真机校准重要发现（2026-09-20，Fluent 2022 R2 / v222）
 
 完整记录见 `skills/aero-fluent/references/prompt_calibration.md` 第 5 节，要点：

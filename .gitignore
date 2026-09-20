@@ -21,3 +21,4 @@ venv/
 *.tmp
 .DS_Store
 Thumbs.db
+opt_trial.msh
