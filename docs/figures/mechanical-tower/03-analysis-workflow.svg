@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="900" viewBox="0 0 1500 900" role="img" aria-labelledby="title desc">
+  <title id="title">吊塔 Mechanical 分析分级流程与安全关口</title>
+  <desc id="desc">从载荷工况、整体梁模型、格构式杆件模型、结果校核到二阶稳定和疲劳评估的流程。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#607d8b"/></marker>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#102a43" flood-opacity="0.15"/></filter>
+  </defs>
+  <rect width="1500" height="900" fill="#f8fafc"/>
+  <text x="750" y="58" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="32" font-weight="700" fill="#102a43">吊塔 Mechanical 分析：先整体，再局部，最后非线性</text>
+
+  <g font-family="Segoe UI, Microsoft YaHei, sans-serif" filter="url(#shadow)">
+    <rect x="55" y="125" width="310" height="155" rx="22" fill="#e3f2fd" stroke="#42a5f5" stroke-width="3"/>
+    <circle cx="105" cy="175" r="28" fill="#1976d2"/><text x="105" y="185" text-anchor="middle" font-size="28" fill="white" font-weight="700">1</text>
+    <text x="145" y="185" font-size="24" font-weight="700" fill="#0d47a1">定义工况</text>
+    <text x="85" y="230" font-size="18" fill="#37474f">自重、吊重、臂架、风</text>
+    <text x="85" y="258" font-size="18" fill="#37474f">制动、倾斜、组合系数</text>
+
+    <rect x="405" y="125" width="310" height="155" rx="22" fill="#e8f5e9" stroke="#66bb6a" stroke-width="3"/>
+    <circle cx="455" cy="175" r="28" fill="#2e7d32"/><text x="455" y="185" text-anchor="middle" font-size="28" fill="white" font-weight="700">2</text>
+    <text x="495" y="185" font-size="24" font-weight="700" fill="#1b5e20">整体梁模型</text>
+    <text x="435" y="230" font-size="18" fill="#37474f">Beam/Shell 快速校核</text>
+    <text x="435" y="258" font-size="18" fill="#37474f">基础反力、整体弯矩、侧移</text>
+
+    <rect x="755" y="125" width="310" height="155" rx="22" fill="#fff3e0" stroke="#ffa726" stroke-width="3"/>
+    <circle cx="805" cy="175" r="28" fill="#ef6c00"/><text x="805" y="185" text-anchor="middle" font-size="28" fill="white" font-weight="700">3</text>
+    <text x="845" y="185" font-size="24" font-weight="700" fill="#e65100">格构式模型</text>
+    <text x="785" y="230" font-size="18" fill="#37474f">主弦/腹杆/节点/连接件</text>
+    <text x="785" y="258" font-size="18" fill="#37474f">Beam + Shell 混合</text>
+
+    <rect x="1105" y="125" width="340" height="155" rx="22" fill="#ede7f6" stroke="#9575cd" stroke-width="3"/>
+    <circle cx="1155" cy="175" r="28" fill="#5e35b1"/><text x="1155" y="185" text-anchor="middle" font-size="28" fill="white" font-weight="700">4</text>
+    <text x="1195" y="185" font-size="24" font-weight="700" fill="#4527a0">载荷与约束</text>
+    <text x="1135" y="230" font-size="18" fill="#37474f">Remote Force/Pressure</text>
+    <text x="1135" y="258" font-size="18" fill="#37474f">Remote Point/Fixed/Bolt</text>
+
+    <rect x="1105" y="440" width="340" height="155" rx="22" fill="#fce4ec" stroke="#ec407a" stroke-width="3"/>
+    <circle cx="1155" cy="490" r="28" fill="#ad1457"/><text x="1155" y="500" text-anchor="middle" font-size="28" fill="white" font-weight="700">5</text>
+    <text x="1195" y="500" font-size="24" font-weight="700" fill="#880e4f">结果校核</text>
+    <text x="1135" y="545" font-size="18" fill="#37474f">反力=手算；能量/误差</text>
+    <text x="1135" y="573" font-size="18" fill="#37474f">变形、应力、接触、连接</text>
+
+    <rect x="755" y="440" width="310" height="155" rx="22" fill="#e0f7fa" stroke="#26c6da" stroke-width="3"/>
+    <circle cx="805" cy="490" r="28" fill="#00838f"/><text x="805" y="500" text-anchor="middle" font-size="28" fill="white" font-weight="700">6</text>
+    <text x="845" y="500" font-size="24" font-weight="700" fill="#006064">非线性稳定</text>
+    <text x="785" y="545" font-size="18" fill="#37474f">Large Deflection / P-Delta</text>
+    <text x="785" y="573" font-size="18" fill="#37474f">杆件屈曲、接触非线性</text>
+
+    <rect x="405" y="440" width="310" height="155" rx="22" fill="#fff8e1" stroke="#ffb300" stroke-width="3"/>
+    <circle cx="455" cy="490" r="28" fill="#f9a825"/><text x="455" y="500" text-anchor="middle" font-size="28" fill="white" font-weight="700">7</text>
+    <text x="495" y="500" font-size="24" font-weight="700" fill="#8d5b00">动载与疲劳</text>
+    <text x="435" y="545" font-size="18" fill="#37474f">模态/瞬态/循环载荷</text>
+    <text x="435" y="573" font-size="18" fill="#37474f">寿命评估需真实载荷谱</text>
+
+    <rect x="55" y="440" width="310" height="155" rx="22" fill="#eceff1" stroke="#78909c" stroke-width="3"/>
+    <circle cx="105" cy="490" r="28" fill="#546e7a"/><text x="105" y="500" text-anchor="middle" font-size="28" fill="white" font-weight="700">8</text>
+    <text x="145" y="500" font-size="24" font-weight="700" fill="#37474f">工程验收</text>
+    <text x="85" y="545" font-size="18" fill="#37474f">载荷表、图纸、法规、标准</text>
+    <text x="85" y="573" font-size="18" fill="#37474f">由有资质人员审查与签字</text>
+  </g>
+
+  <g fill="none" stroke="#607d8b" stroke-width="5" marker-end="url(#arrow)">
+    <path d="M365 205 L395 205"/><path d="M715 205 L745 205"/><path d="M1065 205 L1095 205"/>
+    <path d="M1275 280 L1275 430"/>
+    <path d="M1095 518 L1075 518"/><path d="M745 518 L725 518"/><path d="M395 518 L375 518"/>
+    <path d="M210 440 L210 290"/><path d="M455 440 L455 290"/>
+    <path d="M905 440 L905 290"/><path d="M1275 595 L1275 745 L210 745 L210 605"/>
+  </g>
+
+  <rect x="235" y="765" width="1030" height="88" rx="18" fill="#ffebee" stroke="#d32f2f" stroke-width="3"/>
+  <text x="750" y="802" text-anchor="middle" font-family="Microsoft YaHei, sans-serif" font-size="22" font-weight="700" fill="#b71c1c">安全关口：一次“线性静力 + 最大应力”结果，不足以证明吊塔安全</text>
+  <text x="750" y="835" text-anchor="middle" font-family="Microsoft YaHei, sans-serif" font-size="19" fill="#8e0000">必须根据真实设备补齐二阶稳定、节点/基础、动力与疲劳，并按适用标准和厂家资料验收</text>
+</svg>

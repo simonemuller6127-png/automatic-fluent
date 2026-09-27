@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
+  <title id="title">Fluent 外流受力分析中的方向、参考面积与力矩中心</title>
+  <desc id="desc">二维圆柱外流示意图，来流沿正 X，阻力沿正 X，升力沿正 Y，力矩绕圆柱中心并按右手定则取正 Z。</desc>
+  <defs>
+    <marker id="arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#c62828"/></marker>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1565c0"/></marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#2e7d32"/></marker>
+    <marker id="arrow-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#546e7a"/></marker>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#123" flood-opacity="0.18"/></filter>
+  </defs>
+  <rect width="1200" height="680" fill="#f7f9fc"/>
+  <text x="60" y="62" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="30" font-weight="700" fill="#102a43">外流受力：先统一坐标、面积和中心</text>
+  <rect x="90" y="130" width="1020" height="400" rx="18" fill="#e3f2fd" stroke="#64b5f6" stroke-width="3"/>
+  <text x="112" y="160" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="20" fill="#0d47a1">流体域</text>
+  <line x1="115" y1="330" x2="1085" y2="330" stroke="#90a4ae" stroke-width="2" stroke-dasharray="8 8"/>
+  <text x="145" y="195" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="19" fill="#37474f">压力远场</text>
+  <text x="145" y="493" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="19" fill="#37474f">压力远场</text>
+  <rect x="90" y="300" width="28" height="60" rx="6" fill="#ffb300"/>
+  <text x="105" y="255" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="19" fill="#7a4d00">inlet</text>
+  <rect x="1082" y="300" width="28" height="60" rx="6" fill="#43a047"/>
+  <text x="1096" y="255" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="19" fill="#1b5e20">outlet</text>
+  <line x1="40" y1="330" x2="1070" y2="330" stroke="#546e7a" stroke-width="5" marker-end="url(#arrow-gray)"/>
+  <text x="600" y="305" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="22" font-weight="600" fill="#37474f">来流方向 U∞（+X）</text>
+  <circle cx="600" cy="330" r="82" fill="#eceff1" stroke="#455a64" stroke-width="4" filter="url(#shadow)"/>
+  <text x="600" y="338" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="22" fill="#263238">圆柱</text>
+  <line x1="600" y1="330" x2="760" y2="330" stroke="#c62828" stroke-width="8" marker-end="url(#arrow-red)"/>
+  <text x="775" y="337" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="24" font-weight="700" fill="#c62828">Drag：+X</text>
+  <line x1="600" y1="330" x2="600" y2="180" stroke="#1565c0" stroke-width="8" marker-end="url(#arrow-blue)"/>
+  <text x="620" y="190" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="24" font-weight="700" fill="#1565c0">Lift：+Y</text>
+  <path d="M 650 330 A 50 50 0 1 1 642 279" fill="none" stroke="#2e7d32" stroke-width="6" marker-end="url(#arrow-green)"/>
+  <text x="700" y="420" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="24" font-weight="700" fill="#2e7d32">Moment：绕 +Z</text>
+  <circle cx="600" cy="330" r="7" fill="#2e7d32"/>
+  <line x1="600" y1="330" x2="600" y2="445" stroke="#2e7d32" stroke-width="3" stroke-dasharray="5 5"/>
+  <text x="600" y="473" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="20" fill="#2e7d32">力矩中心 = 圆柱几何中心</text>
+  <rect x="90" y="565" width="1020" height="80" rx="14" fill="#fff8e1" stroke="#ffb300" stroke-width="2"/>
+  <text x="120" y="598" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="19" fill="#5d4037">圆柱示例：</text>
+  <text x="120" y="628" font-family="Consolas, Microsoft YaHei, monospace" font-size="20" fill="#3e2723">二维圆柱：Aref = D × Depth；Lref = D；Cd = Fx / (½ρU∞²Aref)；Cm = Mz / (½ρU∞²ArefLref)</text>
+</svg>

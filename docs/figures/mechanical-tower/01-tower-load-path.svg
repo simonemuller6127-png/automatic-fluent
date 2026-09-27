@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="820" viewBox="0 0 1400 820" role="img" aria-labelledby="title desc">
+  <title id="title">塔式起重机吊塔载荷路径与基础反力</title>
+  <desc id="desc">塔身承受吊重、臂架与平衡重自重、塔身自重、机械载荷和风载，并通过基础或锚栓传力。</desc>
+  <defs>
+    <marker id="red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#c62828"/></marker>
+    <marker id="blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#1565c0"/></marker>
+    <marker id="green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#2e7d32"/></marker>
+    <marker id="orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#ef6c00"/></marker>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#123" flood-opacity="0.16"/></filter>
+  </defs>
+  <rect width="1400" height="820" fill="#f8fafc"/>
+  <text x="700" y="58" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="32" font-weight="700" fill="#102a43">吊塔不是一个点载荷：先画清载荷路径</text>
+
+  <!-- mast -->
+  <g stroke="#455a64" stroke-width="7" fill="none" filter="url(#shadow)">
+    <path d="M610 220 L590 690"/><path d="M650 220 L670 690"/>
+    <path d="M613 255 L648 290 L609 325 L645 360 L606 395 L642 430 L603 465 L639 500 L600 535 L636 570 L597 605 L633 640 L594 675"/>
+    <path d="M647 255 L612 290 L651 325 L615 360 L654 395 L618 430 L657 465 L621 500 L660 535 L624 570 L663 605 L627 640 L666 675"/>
+  </g>
+  <line x1="550" y1="690" x2="710" y2="690" stroke="#263238" stroke-width="16"/>
+  <line x1="575" y1="706" x2="575" y2="760" stroke="#546e7a" stroke-width="9"/>
+  <line x1="630" y1="706" x2="630" y2="760" stroke="#546e7a" stroke-width="9"/>
+  <line x1="685" y1="706" x2="685" y2="760" stroke="#546e7a" stroke-width="9"/>
+  <line x1="548" y1="760" x2="712" y2="760" stroke="#263238" stroke-width="10"/>
+  <text x="630" y="790" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="20" fill="#37474f">基础 / 锚栓：轴力、剪力、倾覆弯矩、可能的拉力</text>
+
+  <!-- top assembly -->
+  <rect x="575" y="170" width="110" height="52" rx="10" fill="#cfd8dc" stroke="#455a64" stroke-width="4"/>
+  <text x="630" y="203" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="20" fill="#263238">回转/塔顶</text>
+  <path d="M680 190 L1250 190" stroke="#455a64" stroke-width="8"/>
+  <path d="M680 190 L180 190" stroke="#455a64" stroke-width="8"/>
+  <path d="M690 190 L1140 250 M760 190 L900 240 M830 190 L980 228 M900 190 L1060 218" stroke="#78909c" stroke-width="4"/>
+  <path d="M660 190 L280 190 M520 190 L390 240" stroke="#78909c" stroke-width="4"/>
+  <rect x="180" y="155" width="90" height="70" rx="8" fill="#eceff1" stroke="#546e7a" stroke-width="4"/>
+  <text x="225" y="185" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="18" fill="#37474f">平衡重</text>
+  <text x="225" y="210" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="18" fill="#37474f">Wc</text>
+  <rect x="990" y="225" width="54" height="38" rx="7" fill="#ffb300" stroke="#8d5b00" stroke-width="3"/>
+  <line x1="1017" y1="225" x2="1017" y2="510" stroke="#455a64" stroke-width="3"/>
+  <path d="M1000 510 L1034 510 L1017 550 Z" fill="#455a64"/>
+  <text x="1090" y="230" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="20" fill="#37474f">小车/吊钩</text>
+
+  <!-- loads -->
+  <line x1="1017" y1="550" x2="1017" y2="660" stroke="#c62828" stroke-width="9" marker-end="url(#red)"/>
+  <text x="1050" y="650" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="23" font-weight="700" fill="#c62828">吊重 W</text>
+  <line x1="225" y1="225" x2="225" y2="315" stroke="#ef6c00" stroke-width="8" marker-end="url(#orange)"/>
+  <text x="255" y="300" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="21" font-weight="700" fill="#ef6c00">平衡重 Wc</text>
+  <line x1="630" y1="245" x2="630" y2="355" stroke="#ef6c00" stroke-width="7" marker-end="url(#orange)"/>
+  <text x="660" y="335" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="21" font-weight="700" fill="#ef6c00">塔顶设备</text>
+  <line x1="625" y1="365" x2="625" y2="660" stroke="#2e7d32" stroke-width="6" stroke-dasharray="13 10" marker-end="url(#green)"/>
+  <text x="470" y="500" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="22" font-weight="700" fill="#2e7d32">塔身自重 q</text>
+  <line x1="120" y1="370" x2="590" y2="370" stroke="#1565c0" stroke-width="9" marker-end="url(#blue)"/>
+  <text x="230" y="350" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="24" font-weight="700" fill="#1565c0">风载 Fw</text>
+  <line x1="720" y1="300" x2="930" y2="300" stroke="#1565c0" stroke-width="7" marker-end="url(#blue)"/>
+  <text x="745" y="285" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="21" font-weight="700" fill="#1565c0">回转/变幅水平力</text>
+  <path d="M760 680 A 110 110 0 0 1 850 680" fill="none" stroke="#c62828" stroke-width="7" marker-end="url(#red)"/>
+  <text x="820" y="655" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="22" font-weight="700" fill="#c62828">倾覆力矩 M</text>
+
+  <rect x="930" y="360" width="390" height="330" rx="20" fill="#fff8e1" stroke="#ffb300" stroke-width="3"/>
+  <text x="965" y="402" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="24" font-weight="700" fill="#7a4d00">必须从厂家资料取输入</text>
+  <text x="965" y="445" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="19" fill="#4e342e">• 额定/最大吊重与力臂</text>
+  <text x="965" y="482" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="19" fill="#4e342e">• 臂架、平衡重、塔身自重</text>
+  <text x="965" y="519" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="19" fill="#4e342e">• 起升、回转、变幅动态/制动</text>
+  <text x="965" y="556" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="19" fill="#4e342e">• 现场风压与工作/非工作风工况</text>
+  <text x="965" y="593" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="19" fill="#4e342e">• 基础、锚栓与连接节点参数</text>
+  <text x="965" y="646" font-family="Microsoft YaHei, sans-serif" font-size="19" font-weight="700" fill="#b71c1c">教学模型不能替代载荷表和法定设计</text>
+</svg>

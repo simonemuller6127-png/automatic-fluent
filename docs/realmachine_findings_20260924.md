@@ -181,3 +181,51 @@
   - `tgrid_oom_surface_mesh`（TGrid OOM 诊断与对策）
 - 新模块 `aeroharness/geom_cadquery.py`（cadquery 建域，含 §3 踩坑注释）。
 - `config`/pipeline：geometry 步骤支持 cadquery 后端；mesh 步骤接 run_watertight。
+
+---
+
+## 5. 2026-09-27 补充：区域识别与导出自检（P1）
+
+### 5.1 根因：Describe Geometry 的 SetupType
+v222 合法值只有三个：
+1. `The geometry consists of only fluid regions with no voids`
+2. `...one or more fluid regions and voids`
+3. `The geometry consists of both fluid and solid regions and/or voids`
+
+外流场域是"包围盒挖掉飞机"的**带内腔实体**，用 1 会导致域面被吞成 interior：
+
+| 指标 | SetupType=1 (no voids) | SetupType=3 (voids) |
+|---|---|---|
+| cell 区 | 两个都 fluid（错） | `fluid:1`(air) 主域 + `...-7.9-1`(aluminum) 飞机 |
+| 泄漏 | `interior--freeparts` 454615 面 | 无泄漏 |
+| 全链 | zone 语义错乱 | **205s，ok=true，11556 边界面** |
+
+注：`fluid regions with voids` 不是合法串（传错时 transcript 会列出清单）。
+
+### 5.2 桥接盒不能与部件重叠
+`ext_proj_mm=1`（桥接盒在投影方向外扩 1mm 咬合部件）会让 TGrid 报
+`Front could not be closed at eNNN(x,y,z)`（坐标落在桥接区与垂尾）。
+改为 `ext_proj_mm=0` + `depth_mm=30`（只跨 25.6mm 间隙本身）后正常。
+另：`depth` 若按实体全厚度取（454mm），会把域 Y 从 2540mm 撑到 12286mm。
+
+### 5.3 STEP 导出自检（缺口闭环）
+CAD 侧命名判死（双证据）：
+- `AddSubShape` 对面引用一律返回 null Label → 导出物退化成 `solids=0` + 开放面壳；
+- 改用自由命名形状后名字确实进 STEP，但**重合面**导致表面网格 Join 时
+  `node insertion failed`。
+
+改为 `export_clean_solid()`：只写 solid + 导出后强制回读自检
+（`solids>=1` / 体积相对误差 <1%），`solids=0` 直接 fail fast。
+验收：`solids=1 shells=2 V=493.04 m^3 ok=True`。
+外域合法形态是 **2 壳**（域盒外壳 + 飞机内腔），OCCT 的 `Closed()` 标志未置位
+属正常，对 Fluent 无影响。
+
+### 5.4 v222 TUI 能力实测
+- `/mark`（面寄存器）：**meshing 与 solver 两模式均不可用** → 路线 5 拆区需改 slab 构造
+- 可用：`fluid` / `solid` / `list-zones` / `modify-zones/zone-type` / `zone-name`
+- `Update Regions` 任务**不校验参数名**（传任意键都接受）→ cell 类型纠正落求解侧
+- 实测 voids 串下 cell 类型已正确（主域 fluid / 飞机 solid），**无需纠正**
+
+### 5.5 尚未解决
+- **域面未拆分为 inlet/outlet/farfield**：并入 `interior--fluid:1`。
+  完整外流场 BC 需先拆区（slab 构造或求解器侧分割），否则 cd/cl 无物理意义。

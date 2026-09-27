@@ -80,6 +80,65 @@
    按官方 25.4 章任务链预留）；
 4. **诊断**（6.9）：网格类失败自动分类（negative volume 等）→ failpack 诊断包。
 
+### 负体积根因闸门（2026-09 补齐，此前从未生效）
+
+真机 v222 实证发现：网格含倒置/零体积单元时，**Fluent 不会硬失败**。它对这类单元
+改用另一套离散格式继续计算，原话（真实 transcript）：
+
+```
+Info: The mesh contains elements that are invalid or of poor quality.
+      A different numerical scheme will be applied to these elements,
+      which may affect the quality of the solution.
+WARNING: 40 cells with non-positive volume detected.
+```
+
+后果有三个，逐条说明为什么要单独设闸门：
+
+| 现象 | 原因 | 本项目修复 |
+|---|---|---|
+| 残差照常"收敛" | 坏单元被换了一套格式 | 闸门直接拦，不让它走到受力积分 |
+| 诱发发散被误分类成 `divergence` | 发散只是**症状**，负体积是**根因** | `runner._mesh_gate()` 按根因改判为 `mesh` |
+| `mesh` 分类历史上从未命中 | 该行以 `WARNING:` 开头，而 `ERROR_LINE` 只收 `error` 开头的行，导致 `error_rules` 的 `non[- ]positive` 规则是死代码 | 新增独立 `WARNING` 通道 `NEG_VOLUME_LINE` |
+
+**证据**：修复前回放 916 份历史 transcript，`status=mesh` 的算例数为 **0**；
+其中 4 份含负体积的算例全被归成 `divergence`/`config`。
+
+**实现要点**：
+
+- `transcript_parser.parse_mesh_diagnostics()` 解析真机 `/mesh/check` 与 `/mesh/quality`
+  原文（负体积计数、最小正交质量、最大长宽比、坏单元 cell/zone/location）；
+  **`cell -1 / zone -1` 是"无违规单元"哨兵**，其 `at location` 是 Fluent 的占位
+  垃圾值（实测 `2.82976e+20`），解析器必须丢弃，不能拿去定位；
+- `runner._mesh_gate()` 在失败判定链最前执行，命中即覆盖 `divergence`/`crash_timeout`，
+  但对 `config`/`license` **让位**（那才是当次运行的直接阻断原因）；
+- 该警告由 Fluent 在 `/file/read-case` 的 `Building...` 阶段输出，**天然早于
+  `/solve/iterate`**，因此无需改动已校准的 journal 模板；
+- 诊断落盘到 `summary.json` 的 `mesh_diagnostics`，并在 `failpack/diagnosis.md`
+  增设「网格诊断」小节，给出坏单元坐标与判读方法。
+
+**配置与回退**（阈值走 `run.convergence`，不新增配置文件字段）：
+
+```json
+"convergence": {
+  "mesh_gate": true,          // 设 false 完全关闭闸门
+  "max_negative_volume": 0   // 容差；超过此数才拦
+}
+```
+
+**误伤评估**：扫描 679 份 `status=ok` 的历史算例，含负体积的 **0** 份——闸门不会
+让任何原本通过的算例失败。万一真跑出现误伤，设 `mesh_gate=false` 即可关闭，无需改代码。
+
+**判读方法**（`failpack/diagnosis.md` 会自动给出）：
+
+| 最差单元位置 | 根因阶段 | 处置 |
+|---|---|---|
+| 贴在壁面上 | 阶段2 尺寸/边界层 | 降 MaxSize、增加边界层层数 |
+| 成片落在流体区 | 阶段0 几何 | 回 CAD 查缝隙与自交（FTM/WTM 分流） |
+| 网格文件读不进来 | 阶段0 文件 | 查 `.msh` 十六进制字段与面 `c0/c1` 语义 |
+
+定位命令：`/mesh/repair-improve/report-poor-elements`
+
+
 ## 来源清单（本次核查）
 - Abu-Zidan et al., *Optimising the computational domain size in CFD*, ScienceDirect 2021
 - CADFEM, *How Small is Too Small? Optimal CFD Domain*, 2024
