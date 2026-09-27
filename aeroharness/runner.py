@@ -606,11 +606,40 @@ def cmd_pipeline(args) -> int:
             _write_pipeline_summary(cfg, steps)
             return 1
         out_mesh = steps["mesh"].get("out_mesh") or str(ROOT / out)
-        # ---- Step 2.5: 网格后处理（watertight 多体域必备）----
-        # WTM 把 Join 后的界面区写成 wall，两面单元封死每块体（流场无法建立，
-        # 力恒为零；求解器 TUI 拒绝 zone-type interior）。mesh_post 在文件层把
-        # "两侧都有单元"的 zone 统一改成 interior（判据通用，单体网格零改动）。
-        if backend == "watertight":
+        # ---- Step 2.5: 网格后处理（按 geometry.builder 分路线）----
+        # single 路线：单体域边界自动拆区 + 角色识别（sep-face-zone-angle 已真机
+        # 验证），拆出的 inlet/outlet/symmetry/skin zone id 回灌求解配置。
+        # slab7 路线：两面界面区 -> interior（mesh_post h5 双层补丁）。
+        builder = str((cfg.get("geometry") or {}).get("builder", "single")).lower()
+        if backend == "watertight" and builder == "single":
+            try:
+                from .mesh_post import split_boundary_and_identify
+            except ImportError as exc:
+                print(f"    边界拆区不可用: {exc}")
+                steps["mesh"]["split"] = {"ok": False, "error": str(exc)}
+                _write_pipeline_summary(cfg, steps)
+                return 1
+            print("    边界拆区 + 角色识别（sep-face-zone-angle 40°）...")
+            sr = split_boundary_and_identify(cfg, out_mesh, Path(out_mesh).parent)
+            steps["mesh"]["split"] = sr
+            if not sr.get("ok"):
+                print(f"    边界拆区失败: {sr.get('error')}")
+                _write_pipeline_summary(cfg, steps)
+                return 1
+            out_mesh = sr["split_mesh"]
+            # 角色 -> 配置回填（zone id 寻址，规避名字解析的一切歧义）
+            cfg["bc"]["inlet"]["zone"] = str(sr["inlet"])
+            cfg["bc"]["outlet"]["zone"] = str(sr["outlet"])
+            cfg["bc"]["side_inlet_zones"] = [{"zone": str(z), "type": "symmetry"}
+                                             for z in sr["symmetry"]]
+            cfg["run"]["wall_zone"] = str(sr["skin"])
+            cfg["tui"]["cell_zone_type_fix"] = [
+                f"/define/boundary-conditions/modify-zones/zone-type "
+                f"{c['zone']} {c['type']}" for c in sr["cell_fix"]]
+            print(f"    -> inlet={sr['inlet']} outlet={sr['outlet']} "
+                  f"symmetry={sr['symmetry']} skin={sr['skin']} "
+                  f"cell修正={len(sr['cell_fix'])} 条")
+        elif backend == "watertight":
             try:
                 from .mesh_post import patch_msh_zones
             except ImportError as exc:

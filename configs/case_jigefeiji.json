@@ -87,7 +87,7 @@
   },
   "geometry": {
     "cad_step": "D:/Wechat/communicate/xwechat_files/wxid_rkaprsgm8h1w32_6642/msg/file/2026-08/jigefeiji.STEP",
-    "builder": "slab7",
+    "builder": "single",
     "core_margin_mm": 50.0,
     "_note": "干净构型 STEP 路径。① 文件不能带只读属性，否则 Fluent 报成 'not found'。② bridge_gaps 闭合多实体装配间隙（真机：垂尾与水平尾翼间 25.6mm，不桥接则 surface mesh 报 3-free-edges 失败）。ext_gap 必须为 0——外扩会在部件表面留下 1mm 碎片面，让体网格八叉树追细到分钟级。",
     "margin": {

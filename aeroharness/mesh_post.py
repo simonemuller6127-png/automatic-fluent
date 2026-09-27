@@ -31,6 +31,8 @@ import re
 import shutil
 from pathlib import Path
 
+import numpy as np
+
 
 def _require_h5py():
     try:
@@ -175,3 +177,221 @@ def patch_msh_zones(msh_path: str | Path, out_path: str | Path | None = None,
     return {"ok": True, "patched": to_patch, "tv_changed": tv_changed,
             "two_sided_total": len(two_sided), "out_mesh": str(out),
             "interior_code": ref_type}
+
+
+# ======================================================================
+# 单体域边界拆区 + 角色识别（2026-09-28，外流场路线的最后一环）
+# ======================================================================
+
+def _load_zone_table(f, tv_text):
+    """读取 zone 表：返回 (ids, ztypes, names, tv条目{id:(type,name)})。"""
+    zt = f["meshes/1/faces/zoneTopology"]
+    ids = [int(v) for v in zt["id"][()]]
+    ztypes = [int(v) for v in zt["zoneType"][()]]
+    names = zt["name"][0].decode("utf-8").split(";")
+    entries = {}
+    if tv_text:
+        for zid in ids:
+            m = re.search(r"\(39 \(" + str(zid) + r" (\S+) ([^)]*)\)\(", tv_text)
+            if m:
+                entries[zid] = (m.group(1), m.group(2))
+    return ids, ztypes, names, entries
+
+
+def _zone_face_centroids(f, row: int):
+    """第 row 行 zone 的逐面质心坐标数组。"""
+    nn = f[f"meshes/1/faces/nodes/{row}/nnodes"][()]
+    nd = f[f"meshes/1/faces/nodes/{row}/nodes"][()]
+    nzt = f["meshes/1/nodes/zoneTopology"]
+    nmin = [int(v) for v in nzt["minId"][()]]
+    nmax = [int(v) for v in nzt["maxId"][()]]
+    pools = []
+    for j in range(len(nmin)):
+        try:
+            pools.append(f[f"meshes/1/nodes/coords/{j+1}"][()])
+        except KeyError:
+            pools.append(None)
+
+    def node_xyz(gids):
+        gids = np.asarray(gids)
+        out = np.full((len(gids), 3), np.nan)
+        for j in range(len(nmin)):
+            if pools[j] is None:
+                continue
+            sel = (gids >= nmin[j]) & (gids <= nmax[j])
+            if sel.any():
+                out[sel] = pools[j][gids[sel] - nmin[j]]
+        return out
+
+    cents = np.full((len(nn), 3), np.nan)
+    start = 0
+    for fi, n in enumerate(nn):
+        xyz = node_xyz(nd[start:start + n])
+        start += n
+        if not np.isnan(xyz).any():
+            cents[fi] = xyz.mean(axis=0)
+    return cents
+
+
+def _plane_of(cent, extents, tol):
+    """质心数组落在哪个范围面上：[(面名, 占比)]，面名 x-/x+/y-/y+/z-/z+。"""
+    (x0, x1), (y0, y1), (z0, z1) = extents
+    flags = []
+    for axis, (lo, hi), names in ((0, (x0, x1), ("x-", "x+")),
+                                  (1, (y0, y1), ("y-", "y+")),
+                                  (2, (z0, z1), ("z-", "z+"))):
+        v = cent[:, axis]
+        if not len(v):
+            continue
+        frac_lo = float(np.nanmean(np.abs(v - lo) < tol))
+        frac_hi = float(np.nanmean(np.abs(v - hi) < tol))
+        if frac_lo > 0.95:
+            flags.append((names[0], frac_lo))
+        elif frac_hi > 0.95:
+            flags.append((names[1], frac_hi))
+    return flags
+
+
+def split_boundary_and_identify(cfg: dict, mesh_path: str | Path,
+                                workdir: str | Path) -> dict:
+    """单体域边界自动拆区（外流场管线专用步骤，2026-09-28）。
+
+    单体域网格干净（无贴片折皱），但 6 个外表面 + 飞机表皮被 WTM 归入
+    1-2 个 wall 大区，无法按面设 BC。本函数：
+      1. 离线识别"外表面大区"（faces 质心 95% 以上落在域范围面上的 wall 区）；
+      2. 跑一遍 Fluent：sep-face-zone-angle 40° 把它拆成 6 个平面区，另存
+         <stem>_split.msh.h5（.msh.h5 后缀铁律）；
+      3. 离线对拆后网格逐 wall 区做质心平面归属 -> inlet/outlet/symmetry/skin，
+         cell 区按单元数 -> 主域 fluid / 飞机内腔 solid；
+      4. 返回角色 -> zone id 映射，runner 回填 cfg 的 BC/wall_zone/cell 修正。
+    """
+    h5py = _require_h5py()
+    src = Path(mesh_path)
+    if not src.exists():
+        return {"ok": False, "error": f"网格文件不存在: {src}"}
+    workdir = Path(workdir)
+    workdir.mkdir(parents=True, exist_ok=True)
+    stem = src.name[:-len(".msh.h5")] if src.name.endswith(".msh.h5") else src.stem
+    split_mesh = workdir / (stem + "_split.msh.h5")
+
+    # ---- 离线：全域范围 + 识别外表面大区 ----
+    with h5py.File(src, "r") as f:
+        ids, ztypes, names, _ = _load_zone_table(f, None)
+        nzt = f["meshes/1/nodes/zoneTopology"]
+        nmin = [int(v) for v in nzt["minId"][()]]
+        nmax = [int(v) for v in nzt["maxId"][()]]
+        lo = np.full(3, np.inf); hi = np.full(3, -np.inf)
+        for j in range(len(nmin)):
+            try:
+                co = f[f"meshes/1/nodes/coords/{j+1}"][()]
+            except KeyError:
+                continue
+            lo = np.minimum(lo, co.min(axis=0)); hi = np.maximum(hi, co.max(axis=0))
+        extents = ((lo[0], hi[0]), (lo[1], hi[1]), (lo[2], hi[2]))
+        tol = float(np.max(hi - lo)) * 0.01
+        from collections import Counter
+        wall_code = max((c for c, n in Counter(ztypes).items() if c != 2),
+                        key=lambda c: Counter(ztypes)[c], default=3)
+        outer = []
+        for k in range(1, len(ids) + 1):
+            if ztypes[k - 1] != wall_code:
+                continue
+            flags = _plane_of(_zone_face_centroids(f, k), extents, tol)
+            if flags and max(fr for _, fr in flags) > 0.95:
+                outer.append(int(ids[k - 1]))
+    if len(outer) != 1:
+        return {"ok": False,
+                "error": (f"外表面大区识别到 {len(outer)} 个（期望 1）：{outer}。"
+                          f"判据=wall 区且 95% 面质心落在域范围面上。")}
+    outer_id = outer[0]
+
+    # ---- Pass 1：Fluent sep + 写拆分网格 ----
+    exe = (cfg.get("fluent") or {}).get("exe")
+    if not exe:
+        from .adapters.journal_adapter import discover_fluent_exe
+        exe = discover_fluent_exe()
+    if not exe:
+        return {"ok": False, "error": "fluent.exe 未发现"}
+    jou = workdir / "split.jou"
+    jou.write_text(
+        f'/file/read-case "{src.as_posix()}"\n'
+        f"/mesh/modify-zones/sep-face-zone-angle {outer_id} 40\n"
+        "y\n"
+        f'/file/write-mesh "{split_mesh.as_posix()}"\n'
+        "exit\ny\n", encoding="utf-8")
+    import subprocess as sp
+    tlog = workdir / "split.log"
+    with open(tlog, "w", encoding="utf-8", errors="replace") as tf:
+        proc = sp.Popen([str(exe), "3d", "-t4", "-g", "-i", str(jou)],
+                        stdout=tf, stderr=subprocess.STDOUT,
+                        stdin=sp.DEVNULL, cwd=str(workdir))
+        try:
+            proc.wait(timeout=600)
+        except sp.TimeoutExpired:
+            return {"ok": False, "error": "拆区会话超时(600s)"}
+    stext = tlog.read_text(encoding="utf-8", errors="replace")
+    errs = [l.strip() for l in stext.splitlines()
+            if re.match(r"^Error", l.strip())]
+    if errs:
+        return {"ok": False, "error": f"拆区会话报错: {errs[:3]}"}
+    if not split_mesh.exists():
+        return {"ok": False, "error": "拆区会话未产出网格文件"}
+
+    # ---- 离线：分类拆后网格的 wall 区与 cell 区 ----
+    with h5py.File(split_mesh, "r") as f:
+        tv_text = None
+        if "settings/Thread Variables" in f:
+            tv_text = f["settings/Thread Variables"][0].decode("utf-8")
+        ids2, ztypes2, names2, entries = _load_zone_table(f, tv_text)
+        nzt = f["meshes/1/nodes/zoneTopology"]
+        nmin = [int(v) for v in nzt["minId"][()]]
+        nmax = [int(v) for v in nzt["maxId"][()]]
+        lo = np.full(3, np.inf); hi = np.full(3, -np.inf)
+        for j in range(len(nmin)):
+            try:
+                co = f[f"meshes/1/nodes/coords/{j+1}"][()]
+            except KeyError:
+                continue
+            lo = np.minimum(lo, co.min(axis=0)); hi = np.maximum(hi, co.max(axis=0))
+        extents = ((lo[0], hi[0]), (lo[1], hi[1]), (lo[2], hi[2]))
+        roles: dict[str, list[int]] = {}
+        skin_zones: list[int] = []
+        for k in range(1, len(ids2) + 1):
+            zid = ids2[k - 1]
+            ent = entries.get(zid)
+            if not ent or ent[0] != "wall":
+                continue
+            flags = _plane_of(_zone_face_centroids(f, k), extents, tol)
+            on_plane = [p for p, fr in flags if fr > 0.95]
+            if len(on_plane) == 1:
+                roles.setdefault(on_plane[0], []).append(zid)
+            else:
+                skin_zones.append(zid)
+        czt = f["meshes/1/cells/zoneTopology"]
+        cids = [int(v) for v in czt["id"][()]]
+        cnames = czt["name"][0].decode("utf-8").split(";")
+        cmin = [int(v) for v in czt["minId"][()]]
+        cmax = [int(v) for v in czt["maxId"][()]]
+        cells_of = {cids[j]: (cmax[j] - cmin[j] + 1, cnames[j])
+                    for j in range(len(cids))}
+
+    need = ("x-", "x+", "y-", "y+", "z-", "z+")
+    missing = [p for p in need if len(roles.get(p, [])) != 1]
+    if missing:
+        return {"ok": False,
+                "error": (f"拆后边界区数量异常: {missing}；"
+                          f"现有角色={ {k: [i for i in v] for k, v in roles.items()} }")}
+    if len(skin_zones) != 1:
+        return {"ok": False, "error": f"表皮区识别到 {len(skin_zones)} 个（期望 1）"}
+
+    main_zid = max(cells_of, key=lambda z: cells_of[z][0])
+    cell_fix = [{"zone": cells_of[main_zid][1], "type": "fluid"}]
+    for zid, (n, nm) in sorted(cells_of.items()):
+        if zid != main_zid:
+            cell_fix.append({"zone": nm, "type": "solid"})
+
+    return {"ok": True, "split_mesh": str(split_mesh),
+            "inlet": roles["x-"][0], "outlet": roles["x+"][0],
+            "symmetry": [roles[p][0] for p in ("y-", "y+", "z-", "z+")],
+            "skin": skin_zones[0],
+            "cell_fix": cell_fix, "outer_id": outer_id}
