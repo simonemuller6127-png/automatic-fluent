@@ -6,7 +6,6 @@
     "precision": "single",
     "description": "真实飞机干净构型（jigefeiji.STEP，7 实体，L=3.112m W=0.845m H=4.170m V=0.367m^3）全链路算例：cadquery 无头建外流场域 -> Fluent watertight 网格 -> 求解 -> 受力/收敛。真机校准见 docs/realmachine_findings_20260924.md。zone 名需按实际网格核对（watertight 自动命名，非 E10 的 wall.feiiji）。",
     "mesh_unit_mm": false,
-    "_mesh_unit_note": "⚠️ 2026-09-28 实测更正：WTM 写出的 .msh.h5 求解器读取时自动按米解释（A2 单体域 mesh/check 量得 493 m³、本次 mesh/check 域长 18.7 m 均为无 scale 原生值），**不要开 /mesh/scale 0.001**——开了会把 18.7 m 的域缩成 18.7 mm，飞机变 3.1 mm，雷诺数跌 1000 倍、力值小 4-6 个数量级（真机事故：阻力 0.05 N vs 应有约 50 N）。域尺寸验收标准：mesh/check 的 Domain Extents 必须是米级（x ≈ [-6.4, 12.3]）。",
     "_mesh_unit_note": "meshing 产出的网格是 CAD 声明单位（MM），求解前必须 /mesh/scale 0.001 缩到米，否则 Re/力系数差 1000 倍。"
   },
   "fluent": {
@@ -35,10 +34,22 @@
       "set_type": true
     },
     "side_inlet_zones": [
-      { "zone": "freeparts-fluid_pad_y0:1", "type": "symmetry" },
-      { "zone": "freeparts-fluid_pad_y1:1", "type": "symmetry" },
-      { "zone": "freeparts-fluid_pad_z0:1", "type": "symmetry" },
-      { "zone": "freeparts-fluid_pad_z1:1", "type": "symmetry" }
+      {
+        "zone": "freeparts-fluid_pad_y0:1",
+        "type": "symmetry"
+      },
+      {
+        "zone": "freeparts-fluid_pad_y1:1",
+        "type": "symmetry"
+      },
+      {
+        "zone": "freeparts-fluid_pad_z0:1",
+        "type": "symmetry"
+      },
+      {
+        "zone": "freeparts-fluid_pad_z1:1",
+        "type": "symmetry"
+      }
     ],
     "_sides_note": "侧/顶/底板设 symmetry（外流场标准做法，近似自由大气）。⚠️ 不要用 velocity-inlet 默认 'Normal to Boundary'——侧面板法向是 ±y/±z，四股 50m/s 射流会对撞（真机 2026-09-28：出口 39% 回流、阻力小 500 倍）。"
   },
@@ -100,7 +111,8 @@
     "bridge_gaps": true,
     "max_bridge_gap_mm": 50.0,
     "ext_gap_mm": 0.0,
-    "ext_proj_mm": 1.0
+    "ext_proj_mm": 0.0,
+    "_bridge_note": "ext_proj 必须为 0：1mm 咬合会在部件表面留碎片面，单体域 surface mesh 直接失败（真机 2026-09-28）。零碎片构造已在参数扫描中验证。"
   },
   "pipeline": {
     "geometry": {
