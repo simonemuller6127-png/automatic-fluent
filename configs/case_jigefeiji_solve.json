@@ -16,11 +16,10 @@
   },
   "physics": {
     "model": "ke-standard",
-    "gravity": [
-      0.0,
-      0.0,
-      -9.81
-    ]
+    "gravity": null,
+    "compressible": true,
+    "operating_pressure": 101325.0,
+    "_gravity_note": "干净构型是自由飞外流场；重力会让飞机'下落'，非本题意图。"
   },
   "bc": {
     "inlet": {

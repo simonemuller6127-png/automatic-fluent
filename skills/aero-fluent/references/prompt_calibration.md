@@ -77,4 +77,5 @@ exit
 | 2026-09-20 | v222(2022R2) | report forces | `report/forces/wall-forces no <zone> () 1 0 0 no`：提示序 = all-wall-zones(y/n)→Zone 列表→x/y 分量→Write to File?(y/n→文件名) | 输出为矢量三元组新表，解析器新增格式 C；区域名不得用保留字 `wall`（被自动改名 wall-3） |
 | 2026-09-20 | v222(2022R2) | exit | 有未保存改动时 exit 询问 "OK to discard?" → 模板末尾补一行 `y` | 已固化进模板 |
 | 2026-09-20 | v222(2022R2) | .msh 格式 | 整数字段全十六进制；面数据语义 (n0,n1,c0,c1)=c0 在 (n0→n1) 左侧（elbow.msh 1300 面统计实证）；(45) 段为 3 字段字符串形式 (id 类型串 名字)；四边形 (12) 段必须带 element-type=3 | 见 tools/make_demo_msh.py 注释 |
+| 2026-09-27 | v222(2022R2) | materials/change-create | `change-create air air yes no ideal-gas no no no no no no`：**首答是 'air is a fluid' → yes**，再 'change Density? [no] → no'，然后才是 method 名。早先按 'change Density' 起的序列整体错位一格，ideal-gas 被当 y/n 吃掉，报 'far-field can only be used with ideal gas law'。| 探针实测 |
 | 2026-09-20 | v222(2022R2) | channel 全链路 | ✅ 真跑通过：read→ke→BC→init→iterate→forces→解析→CSV，30 步收敛自动判定 | demo_channel verified=live |

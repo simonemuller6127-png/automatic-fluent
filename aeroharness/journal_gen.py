@@ -167,6 +167,32 @@ def build_quality_lines(cfg: dict) -> list[str]:
     return ["/mesh/check", "/mesh/quality"] if cfg["run"].get("mesh_check") else []
 
 
+def build_material_lines(cfg: dict) -> list[str]:
+    """材料配置（可压外流场需要 ideal gas + Sutherland）。
+
+    pressure-far-field BC 在**不可压**下会直接拒绝求解：
+      "pressure-far-field boundary conditions can only be used with ideal gases"
+    （真机 2026-09-27，WTM 按名字自动设的 far-field BC 触发）。
+
+    config.physics.compressible=true 时输出：
+      materials/change-create air air ideal-gas ... sutherland three-coefficient ...
+      operating-conditions/operating-pressure <p>
+    """
+    ph = cfg.get("physics") or {}
+    if not ph.get("compressible"):
+        return []
+    op_p = float(ph.get("operating_pressure", 101325.0))
+    suth = ph.get("sutherland", [1.716e-05, 273.11, 110.56])
+    # v222 应答序列（探针实测 2026-09-27）：
+    #   yes(air is a fluid) -> no(change Density?) -> ideal-gas(method) ->
+    #   no(Cp) no(thermal cond) no(viscosity) no(mol weight) no(thermal exp) no(speed of sound)
+    return [
+        f"/define/materials/change-create air air yes no ideal-gas "
+        f"no no no no no no",
+        f"/define/operating-conditions/operating-pressure {op_p:g}",
+    ]
+
+
 def build_cell_zone_fix_lines(cfg: dict) -> list[str]:
     """cell 区类型纠正（WTM 启发式可能把部分 slab 判成 solid）。
 
@@ -223,6 +249,8 @@ def expected_steps(cfg: dict) -> list[str]:
         steps.append("mesh_scale")  # 读网格后立刻缩放到米（P0-5）
     if (cfg.get("tui") or {}).get("cell_zone_type_fix"):
         steps.append("cell_zone_fix")
+    if (cfg.get("physics") or {}).get("compressible"):
+        steps.append("materials")
     steps.append("setup_models")
     if cfg["physics"].get("gravity"):
         steps.append("gravity")
@@ -280,6 +308,7 @@ def render_journal(cfg: dict, params: dict | None, run_id: str, attempt: int) ->
         "mesh_file": _q(mesh_path),
         "mesh_scale_section": _section(build_mesh_scale_lines(cfg), "mesh_scale"),
         "cell_zone_fix_section": _section(build_cell_zone_fix_lines(cfg), "cell_zone_fix"),
+        "material_section": _section(build_material_lines(cfg), "materials"),
         "model_section": _section(build_model_lines(cfg), "setup_models"),
         "gravity_section": _section(build_gravity_lines(cfg), "gravity"),
         "bc_section": bc_section,

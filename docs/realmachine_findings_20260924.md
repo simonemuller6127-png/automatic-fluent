@@ -229,3 +229,40 @@ CAD 侧命名判死（双证据）：
 ### 5.5 尚未解决
 - **域面未拆分为 inlet/outlet/farfield**：并入 `interior--fluid:1`。
   完整外流场 BC 需先拆区（slab 构造或求解器侧分割），否则 cd/cl 无物理意义。
+
+---
+
+## 6. 2026-09-27 续：7 体域构造与首跑（P1 收尾）
+
+### 6.1 为什么必须切成 7 体
+单体域的**域面全部并入 interior**，无法设 inlet/outlet/far-field BC
+（无压力驱动 → cd/cl 恒为 0，实测力报告全 0）。
+切成 `core(挖空飞机) + 6 块域面板` 后，WTM 为每块板生成独立边界 zone，
+**并按名字自动设置 BC 类型**（velocity-inlet 1911 面 / pressure-outlet 2525 面 /
+pressure-far-field × 8），连 `config.set_type` 都省了。
+相邻界面由 `Apply Share Topology` 自动 Joining（18 对界面，skewness 0.79）。
+
+**构造要点：切片必须在飞机 bbox 之外**。core = 飞机 bbox 外扩 50mm，
+6 块板恰好铺满 core→域盒 的壳层、互不重叠。
+（先前错误构造：薄片穿过飞机，把飞机切成 5 段 → 8 个 part → 表面网格失败。）
+
+真机：7 体网格 54.3s（单体 205s 的 1/4，7 体反而更快）。
+
+### 6.2 cell 区类型误判与纠正
+WTM 启发式把 `top` / `bottom` / `farfield_ym` / `farfield_yp` 判成 **solid**
+（`inlet`/`outlet`/`fluid_core` 判对）。求解器报
+`Flow boundary zone adjacent to a solid zone — MUST be fixed before solution can proceed`。
+
+纠正命令（**注意 `fluid` 是单向的**）：
+```
+/define/boundary-conditions/fluid <zone> ...        # 只接受"已是 fluid"的区，无效
+/define/boundary-conditions/modify-zones/zone-type <zone> fluid   # ✅ 有效
+```
+4 条命令 30 秒内完成，7 个 cell 区全部 fluid。
+已接入 `config.tui.cell_zone_type_fix` + `journal_gen.build_cell_zone_fix_lines()`。
+
+### 6.3 附带发现：pressure-far-field 需要 ideal gas
+WTM 自动设的 far-field BC 在**不可压**下会报
+`Pressure far-field boundary condition can only be used with ideal gas law`。
+解法：`define/materials/change-create air air ideal-gas ... sutherland ...`
++ `operating-pressure 101325`（这也更符合外流场物理）。
