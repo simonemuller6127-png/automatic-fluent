@@ -350,6 +350,220 @@ def test_mesh_time():
     check("成本项抑制了“无脑最密网格”", nx < 55, f"NX={nx}")
 
 
+def test_mesh_diagnostics():
+    print("[9] 网格诊断解析（真机原文夹具） + 负体积根因闸门")
+    from aeroharness.transcript_parser import parse_mesh_diagnostics, parse_transcript
+
+    # ---- 夹具 1：真机 v222 实录（runs/demo_channel/20260920_030418_single-a1 原样截取）----
+    real_2d = (
+        "> /mesh/quality\n\n"
+        "Minimum Orthogonal Quality =  1.00000e+00 cell -1 on zone -1 "
+        "(ID: 0 on partition: 0) at location ( 2.82976e+20,  7.93162e+34)\n\n"
+        "Maximum Aspect Ratio =  4.12311e+00 cell 27 on zone 1000 "
+        "(ID: 28 on partition: 0) at location ( 7.50000e-02,  6.25000e-03)\n\n"
+        "> (display \"; STEP-OK mesh_check\")\n")
+    d2 = parse_mesh_diagnostics(real_2d)
+    check("真机2D：正交质量/长宽比数值正确",
+          d2.get("min_orthogonal") == 1.0 and abs(d2.get("max_aspect_ratio", 0) - 4.12311) < 1e-9,
+          str(d2))
+    check("真机2D：cell -1 是哨兵，垃圾坐标必须丢弃",
+          "min_orthogonal_location" not in d2 and d2.get("min_orthogonal_cell") == -1,
+          str(d2))
+    check("真机2D：真实单元坐标保留",
+          d2.get("max_aspect_ratio_location") == [0.075, 0.00625], str(d2))
+
+    # ---- 夹具 2：用户真机截图 3D 格式（三分量）----
+    shot_3d = (
+        "Minimum Orthogonal Quality =  2.86861e-01 cell 18463 on zone 3 "
+        "(ID: 13690 on partition: 3) at location "
+        "( 1.07846e+00, 1.04442e-01, -2.43722e-01)\n"
+        "Maximum Aspect Ratio =  3.35887e+01 cell 20778 on zone 3 "
+        "(ID: 8757 on partition: 0) at location "
+        "( 8.86668e-01, -5.55940e-01, -1.72690e+00)\n")
+    d3 = parse_mesh_diagnostics(shot_3d)
+    check("真机3D：分量解析正确",
+          abs(d3.get("min_orthogonal", 0) - 0.286861) < 1e-9
+          and abs(d3.get("max_aspect_ratio", 0) - 33.5887) < 1e-9, str(d3))
+    check("真机3D：三维坐标保留",
+          d3.get("min_orthogonal_location") == [1.07846, 0.104442, -0.243722], str(d3))
+
+    # ---- 夹具 3：负体积警告（WARNING: 开头，ERROR_LINE 抓不到）----
+    real_neg = ("Info: The mesh contains elements that are invalid or of poor quality.\n"
+                "WARNING: 40 cells with non-positive volume detected.\n")
+    dn = parse_mesh_diagnostics(real_neg)
+    check("负体积计数解析（WARNING: 通道）",
+          dn.get("negative_volume") == 40 and dn.get("poor_elements_reported") is True,
+          str(dn))
+    check("无匹配/空串不抛异常（解析失败不得升级为算例失败）",
+          parse_mesh_diagnostics("完全无关的文本") == {} and parse_mesh_diagnostics("") == {})
+
+    # ---- 夹具 4：整条链路（read-case 阶段即报负体积，天然早于 iterate）----
+    chain = ("> /file/read-case \"x.msh\"\nBuilding...\n" + real_neg
+             + "\n> /solve/iterate 100\n iter continuity\n 1 1.0e-02\n"
+             + "\n/solve/iterate 100\n> (display \"; STEP-OK iterate\")\n; STEP-OK iterate\n"
+             + "\n/solve/iterate 100\n; DONE\n")
+    pt = parse_transcript(chain, ["read_mesh", "iterate"])
+    check("parse_transcript 把网格诊断装进 pt.mesh",
+          pt.mesh.get("negative_volume") == 40, str(pt.mesh))
+    check("负体积警告不污染 pt.errors（警告≠错误，置否交由闸门）",
+          not any("non-positive" in e["text"] for e in pt.errors), str(pt.errors))
+
+    # ---- 闸门：根因改判 ----
+    cfg = demo_cfg()
+    div = {"step": "iterate", "category": "divergence",
+           "evidence_line": "Divergence detected in AMG solver", "auto_retryable": True}
+    g = R._mesh_gate(cfg, {"negative_volume": 40}, div)
+    check("闸门：负体积把 divergence 改判为 mesh 根因",
+          g["category"] == "mesh" and g["step"] == "read_mesh", str(g))
+    check("闸门：对 config/license 让位（它们才是当次直接阻断原因）",
+          R._mesh_gate(cfg, {"negative_volume": 40}, dict(div, category="config"))["category"]
+          == "config")
+    check("闸门：负体积为 0 时不改判", R._mesh_gate(cfg, {"negative_volume": 0}, div) is div)
+    check("闸门：mesh_gate=false 可完全关闭",
+          R._mesh_gate(demo_cfg(**{"run.convergence.mesh_gate": False}),
+                       {"negative_volume": 40}, div) is div)
+    check("闸门：阈值可调（容差内不改判）",
+          R._mesh_gate(demo_cfg(**{"run.convergence.max_negative_volume": 40}),
+                       {"negative_volume": 40}, div) is div)
+
+    # ---- error_rules / error_kb 接线 ----
+    check("error_rules：Read_Grid_Section: Aborted 归 mesh（原先落 config）",
+          (error_rules.classify_lines(["Error at Node 1: Read_Grid_Section: Aborted "
+                                       "due to critical error."]) or {}).get("category")
+          == "mesh")
+    from aeroharness import error_kb
+    hits = error_kb.lookup(["WARNING: 40 cells with non-positive volume detected."])
+    check("error_kb：负体积条目命中且给出根因+修复指令",
+          any(h["id"] == "negvol_count_warning" and h["cause"] and h["fix"] for h in hits),
+          str([h["id"] for h in hits]))
+
+
+def test_mesh_gate_end_to_end():
+    print("[10] 负体积闸门端到端（mock 静默通过 → 闸门拦截）")
+    restore = with_env(AERO_MOCK_FAIL="negvol")
+    try:
+        cfg = demo_cfg()
+        cfg["case"]["name"] = "selftest_negvol"
+        res = R.run_with_retry(cfg, run_id="negvol")
+    finally:
+        restore()
+    # mock 在 negvol 下仍会跑完并写 result.ok（模拟真机的"静默通过"），
+    # 因此唯一能拦住它的就是闸门
+    check("静默通过被闸门拦下（status=failed）", res.status == "failed",
+          f"status={res.status}")
+    check("根因归类为 mesh 而非 divergence",
+          (res.failure or {}).get("category") == "mesh", str(res.failure))
+    diag = (res.summary or {}).get("mesh_diagnostics") or {}
+    check("summary 落盘网格诊断", diag.get("negative_volume") == 40, str(diag))
+    fp = Path(res.run_dir) / "failpack" / "diagnosis.md"
+    body = fp.read_text(encoding="utf-8") if fp.exists() else ""
+    check("failpack 诊断包含网格诊断小节与坏单元坐标",
+          "网格诊断" in body and "负体积单元数：40" in body
+          and "最大长宽比" in body, body[:200])
+    # 关闭闸门后应恢复为"通过"，证明阈值是唯一拦截点
+    restore2 = with_env(AERO_MOCK_FAIL="negvol")
+    try:
+        cfg2 = demo_cfg()
+        cfg2["case"]["name"] = "selftest_negvol_off"
+        cfg2["run"]["convergence"]["mesh_gate"] = False
+        res2 = R.run_with_retry(cfg2, run_id="negvolf")
+    finally:
+        restore2()
+    check("mesh_gate=false 后放行（证明拦截点唯一、可回退）", res2.status == "ok",
+          f"status={res2.status} failure={res2.failure}")
+
+
+def test_mesh_post():
+    print("[11] mesh_post：两面区识别 + Thread Variables 补丁 + BC 侧面板")
+    try:
+        from aeroharness import mesh_post
+    except ImportError as exc:
+        check("mesh_post 可导入（h5py 可选依赖）", False, str(exc))
+        return
+
+    # ---- 1) 纯文本补丁：wall -> interior，字节预算收紧 ----
+    blob = ('(0 "Zone variables:")\n'
+            '(39 (101 wall pad_x0:1)(\n))\n'
+            '(39 (102 wall pad_x0-pad_b)(\n))\n'
+            '(39 (103 interior interior--pad_b)(\n))\n')
+    new_blob, changed = mesh_post._patch_thread_variables(blob, {102})
+    check("Thread Variables 补丁：只改目标 zone",
+          changed == [102] and "(102 interior pad_x0-pad_b)" in new_blob
+          and "(101 wall pad_x0:1)" in new_blob, new_blob)
+    check("Thread Variables 补丁：预算收紧（空内层表）",
+          ")(\n))" not in new_blob and len(new_blob) < len(blob) + 8, "")
+
+    # ---- 2) 合成 .msh.h5 端到端：识别两面区 + 双层补丁 + 自检 ----
+    import h5py
+    import numpy as np
+    tmp = Path(tempfile.mkdtemp())
+    src = tmp / "mini.msh.h5"
+    with h5py.File(src, "w") as f:
+        zt = f.create_group("meshes/1/faces/zoneTopology")
+        # 3 个面区：101 单面(wall 边界) / 102 两面(wall 界面, 需补) / 103 原生 interior
+        zt.create_dataset("id", data=np.array([101, 102, 103], dtype=np.int32))
+        zt.create_dataset("zoneType", data=np.array([3, 3, 2], dtype=np.int32))
+        zt.create_dataset("faceType", data=np.array([5, 5, 5], dtype=np.int32))
+        joined = ";".join(["pad_a:1", "pad_a-pad_b", "interior--pad_b"])
+        zt.create_dataset("name", data=np.array([joined.encode()], dtype=f"S{len(joined)+8}"))
+        # c0/c1 按行号 1..3 组织；c1 非零 = 两面
+        f["meshes/1/faces/c0/1"] = np.array([1, 2], dtype=np.uint32)
+        f["meshes/1/faces/c1/1"] = np.array([0, 0], dtype=np.uint32)
+        f["meshes/1/faces/c0/2"] = np.array([1, 2], dtype=np.uint32)
+        f["meshes/1/faces/c1/2"] = np.array([1, 2], dtype=np.uint32)
+        f["meshes/1/faces/c0/3"] = np.array([1, 2, 3], dtype=np.uint32)
+        f["meshes/1/faces/c1/3"] = np.array([1, 2, 3], dtype=np.uint32)
+        blob_full = ('(0 "Zone variables:")\n'
+                     '(39 (101 wall freeparts-pad_a:1)(\n))\n'
+                     '(39 (102 wall freeparts-pad_a-pad_b)(\n))\n'
+                     '(39 (103 interior interior--pad_b)(\n))\n')
+        tv = f.create_group("settings").create_dataset(
+            "Thread Variables",
+            data=np.array([blob_full.encode()], dtype=f"S{len(blob_full)+64}"))
+        _ = tv
+    rep = mesh_post.patch_msh_zones(src, log=None)
+    check("mesh_post 端到端：两面区自动识别并补丁",
+          rep.get("ok") and rep.get("patched") == [102],
+          str(rep))
+    check("mesh_post 输出命名保持 .msh.h5",
+          rep.get("ok") and rep["out_mesh"].endswith("_patched.msh.h5"), str(rep))
+    check("mesh_post 原网格未被修改", src.exists(), "")
+    with h5py.File(rep["out_mesh"], "r") as f2:
+        zt2 = f2["meshes/1/faces/zoneTopology"]
+        check("mesh_post 自检：补丁后 zoneType 生效",
+              int(zt2["zoneType"][1]) == 2 and int(zt2["zoneType"][0]) == 3, "")
+        tv2 = f2["settings/Thread Variables"][0].decode()
+        check("mesh_post 自检：Thread Variables 同步",
+              "(102 interior pad_a-pad_b)" in tv2 and "(101 wall freeparts-pad_a:1)" in tv2,
+              tv2[:200])
+
+    # ---- 3) 输出命名守卫 ----
+    check("default_out_path：.msh.h5 后缀守卫",
+          mesh_post.default_out_path("a/b/case.msh.h5").name == "case_patched.msh.h5"
+          and mesh_post.default_out_path("a/b/case.h5").name.endswith(".msh.h5"), "")
+
+    # ---- 4) BC 侧面板 journal 生成 ----
+    cfg = {"tui": {}, "physics": {"model": "ke-standard"},
+           "bc": {"inlet": {"zone": "in:1", "type": "velocity-inlet", "vmag": 50.0,
+                            "turb_intensity": 5.0, "turb_viscosity_ratio": 10.0,
+                            "set_type": True},
+                  "outlet": {"zone": "out:1", "type": "pressure-outlet",
+                             "gauge_pressure": 0.0, "set_type": True},
+                  "side_inlet_zones": ["s1:1", "s2:1"]}}
+    bc = journal_gen.build_bc_lines(cfg)
+    joined = "\n".join(bc)
+    check("BC 侧面板：zone-type + 同值 velocity-inlet",
+          "/mesh/modify-zones/zone-type s1:1 velocity-inlet" in joined
+          and "/define/boundary-conditions/set/velocity-inlet s2:1 () vmag no 50" in joined
+          and joined.count("turb-viscosity-ratio") == 3, joined)
+    # 无侧面板配置的旧算例不受影响
+    cfg2 = copy.deepcopy(cfg)
+    cfg2["bc"].pop("side_inlet_zones")
+    bc2 = journal_gen.build_bc_lines(cfg2)
+    check("BC 无侧面板配置：向后兼容",
+          len(bc2) == 4 and not any("s1:1" in l for l in bc2), str(bc2))
+
+
 def main() -> int:
     t0 = time.time()
     print("== aeroharness 离线全链路自测 ==")
@@ -361,6 +575,9 @@ def main() -> int:
     test_optimize()
     test_new_modules()
     test_mesh_time()
+    test_mesh_diagnostics()
+    test_mesh_gate_end_to_end()
+    test_mesh_post()
     print(f"\n== 结果: PASS={len(PASS)} FAIL={len(FAIL)}  用时 {time.time()-t0:.1f}s ==")
     if FAIL:
         print("失败用例: " + ", ".join(FAIL))

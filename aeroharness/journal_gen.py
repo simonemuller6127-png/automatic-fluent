@@ -49,8 +49,15 @@ def build_bc_lines(cfg: dict) -> list[str]:
     lines: list[str] = []
     tui = cfg["tui"]
     inlet, outlet = cfg["bc"]["inlet"], cfg["bc"]["outlet"]
+    # 7 体域侧面板（bc.side_inlet_zones）：与主入口同类型、同来流值。
+    # 条目可以是 zone 名字符串，或 {zone, type}。
+    sides = [(z if isinstance(z, str) else z["zone"],
+              (None if isinstance(z, str) else z.get("type")))
+             for z in (cfg["bc"].get("side_inlet_zones") or [])]
     if inlet.get("set_type"):
         lines.append(f"/mesh/modify-zones/zone-type {inlet['zone']} {inlet['type']}")
+        for zname, ztype in sides:
+            lines.append(f"/mesh/modify-zones/zone-type {zname} {ztype or inlet['type']}")
     if outlet.get("set_type"):
         lines.append(f"/mesh/modify-zones/zone-type {outlet['zone']} {outlet['type']}")
 
@@ -67,6 +74,11 @@ def build_bc_lines(cfg: dict) -> list[str]:
             f"/define/boundary-conditions/set/velocity-inlet {inlet['zone']} () "
             + " ".join(parts) + " ()"
         )
+        for zname, _ in sides:
+            lines.append(
+                f"/define/boundary-conditions/set/velocity-inlet {zname} () "
+                + " ".join(parts) + " ()"
+            )
     elif inlet["type"] == "pressure-far-field":
         # 官方示例翻译（pyfluent external_compressible_flow：跨音速机翼 M0.8395, AoA 3.06°）
         # 应答序列未真机校准（demo 管道不含 far-field），首次使用按 prompt_calibration 探针定案

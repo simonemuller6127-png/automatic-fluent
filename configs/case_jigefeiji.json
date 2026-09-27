@@ -16,27 +16,30 @@
   },
   "physics": {
     "model": "ke-standard",
-    "gravity": [
-      0.0,
-      0.0,
-      -9.81
-    ]
+    "_gravity_note": "重力段暂关：/define/operating-conditions/gravity 的应答序列未真机校准（R 轨 200 迭代跑即无 gravity），不可压外流下对 cd 是二阶小量。P2 按校准流程定案后恢复 E10 映射 [0,0,-9.81]。"
   },
   "bc": {
     "inlet": {
-      "zone": "TODO_inlet",
+      "zone": "freeparts-fluid_pad_x0:1",
       "type": "velocity-inlet",
       "vmag": 50.0,
       "turb_intensity": 5.0,
       "turb_viscosity_ratio": 10.0,
-      "set_type": false
+      "set_type": true
     },
     "outlet": {
-      "zone": "TODO_outlet",
+      "zone": "freeparts-fluid_pad_x1:1",
       "type": "pressure-outlet",
       "gauge_pressure": 0.0,
-      "set_type": false
-    }
+      "set_type": true
+    },
+    "side_inlet_zones": [
+      "freeparts-fluid_pad_y0:1",
+      "freeparts-fluid_pad_y1:1",
+      "freeparts-fluid_pad_z0:1",
+      "freeparts-fluid_pad_z1:1"
+    ],
+    "_sides_note": "7 体域的四块侧/顶/底板设为同来流 velocity-inlet（风洞式外流，与主入口共用 vmag/湍流值）。wall 方案是 P2 敏感性对照项。"
   },
   "methods": {
     "enabled": true,
@@ -50,7 +53,7 @@
   },
   "run": {
     "n_iter": 500,
-    "wall_zone": "freeparts-open-cascade-step-translator-7.9-1:1",
+    "wall_zone": "freeparts-fluid_core-freeparts-fluid_core:1",
     "force_file": "forces.lis",
     "force_report_style": "C3",
     "reference": {
@@ -82,6 +85,8 @@
   },
   "geometry": {
     "cad_step": "D:/Wechat/communicate/xwechat_files/wxid_rkaprsgm8h1w32_6642/msg/file/2026-08/jigefeiji.STEP",
+    "builder": "slab7",
+    "core_margin_mm": 50.0,
     "_note": "干净构型 STEP 路径。① 文件不能带只读属性，否则 Fluent 报成 'not found'。② bridge_gaps 闭合多实体装配间隙（真机：垂尾与水平尾翼间 25.6mm，不桥接则 surface mesh 报 3-free-edges 失败）。ext_gap 必须为 0——外扩会在部件表面留下 1mm 碎片面，让体网格八叉树追细到分钟级。",
     "margin": {
       "upstream": 2.0,
@@ -113,13 +118,8 @@
       "parallel": 2,
       "max_parallel": 4,
       "local_sizing": [],
-      "boundary_layers": {
-        "type": "smooth-transition",
-        "n_layers": 14,
-        "rate": 1.15,
-        "transition_ratio": 0.5,
-        "_note": "官方 ahmed 示例值：14 层 / rate 1.15 / transition 0.5。粘性阻力主导时的调参对象。"
-      },
+      "boundary_layers": null,
+      "_bl_note": "7 体域暂关 BL：meshing 会话里界面区类型是 wall，边界层会从界面生长（物理错误且薄板内层碰撞危险）。开启前需先解决界面区在 meshing 侧的类型（P2 项）。官方 ahmed 示例值 14 层/rate 1.15/transition 0.5 备用。",
       "setup_type": "The geometry consists of both fluid and solid regions and/or voids",
       "capping_required": "No",
       "_boi_note": "首轮置空：WTM 的 BOI 局部加密要求几何中存在封闭的 BOI 体面区，我们的域 STEP 不含。想要尾流加密应在 cadquery 阶段把一个 box 实体做进域几何并命名（后续增强项）。boi_wake.size=0.8 是米语义；之前写的 20.0 既错在单位也比飞机还大 6 倍。"
@@ -175,7 +175,20 @@
     ],
     "conclusion": "WTM 把两个 cell zone 都识别为 fluid（无需纠正）；域面未成为独立 zone，飞机皮是 2 个 wall + 1 shadow"
   },
-  "_zone_todo": "飞机皮 = freeparts-open-cascade-step-translator-7.9-1:1（4496 面）。inlet/outlet/farfield 未成独立 zone（被吞为 interior）——需 T7 前的拆区工作（路线5 mark/sep 或 slab 构造）。首跑先用压力出口简化为 wall 之外的唯一面，或先跑纯 wall 受力。",
+  "_zone_truth_slab7_20260927": {
+    "note": "7 体域（slab7）+ mesh_post 补丁路线的真机 zone 真相（run rename_probe/solve_v3）",
+    "cell": "7 个 cell 区全部 fluid（fluid_* 命名经 WTM 区域识别天然为 fluid，无需求解侧纠正）",
+    "outer_faces": [
+      "27 freeparts-fluid_pad_x0:1 (1911 面, 上游入口)",
+      "28 freeparts-fluid_pad_x1:1 (2525 面, 下游出口)",
+      "29/30 freeparts-fluid_pad_y0:1|y1:1 (侧向)",
+      "31/32 freeparts-fluid_pad_z0:1|z1:1 (底/顶)"
+    ],
+    "skin": "26 freeparts-fluid_core-freeparts-fluid_core:1 (2378 面, 飞机表皮, 单邻接)",
+    "interfaces": "18 个两面区由 mesh_post 补丁为 interior（求解器 TUI 拒绝 zone-type interior，只能文件层修）",
+    "verified": "50 迭代非零力：压差 0.106 N + 粘性 0.015 N，零 shadow、零错误"
+  },
+  "_zone_todo": "已由 slab7 + mesh_post 路线解决（见 _zone_truth_slab7_20260927）。旧的单体域拆区记录（T6/T6C）保留作历史。",
   "_zones_T6C": {
     "fluid_cell": "fluid:1",
     "solid_cell": "freeparts-open-cascade-step-translator-7.9-1",

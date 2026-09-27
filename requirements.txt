@@ -4,3 +4,4 @@
 optuna>=3.6          # M5 优化闭环 TPE 引擎（缺失时用内置“随机+局部精修”）
 pyyaml>=6.0          # 支持 .yaml 配置（缺失时仅支持 .json，本项目配置全用 .json）
 mcp>=1.9             # L3 MCP 桥 tools/mcp_server.py（缺失时不启用 MCP 接入）
+h5py>=3.8            # aeroharness/mesh_post.py 网格后处理（7 体域界面区 interior 化；缺失时 watertight 多体管线不可用）

@@ -412,17 +412,25 @@ def build_slab7_domain(src_step: str | Path, out_dir: str | Path,
 
     为什么需要它：单体域的**域面全部并入 interior**，无法设 inlet/outlet/far-field
     边界条件（无压力驱动 -> cd/cl 恒为 0）。把域盒切成"含飞机的核心区 + 6 块板"，
-    WTM 会为每块板生成独立边界 zone，**并按名字自动设置 BC 类型**
-    （velocity-inlet / pressure-outlet / pressure-far-field，真机验证）。
+    每块板的外表面成为独立 zone，BC 类型由求解侧 journal 显式设置
+    （bc.set_type + bc.side_inlet_zones，channel 同款机制）。
+
+    ⚠️ 命名铁律（2026-09-27 真机教训）：body 名**绝不能含** inlet/outlet/farfield
+    等 BC 关键字——WTM Update Boundaries 按 zone 名自动设 BC 类型，而 7 体域的
+    界面区名是两块板名的拼接（freeparts-<A>-freeparts-<B>），含关键字就会把
+    两面邻单元的界面区误设成 BC，报 "two adjacent cell zones" 并封死流道。
+    因此统一命名 fluid_pad_<轴><0/1>，命名与 BC 语义彻底解耦。
 
     构造要点（**切片不能碰飞机**，否则飞机被切成多段导致表面网格失败）：
-        core   = 飞机包围盒外扩 core_margin_mm，挖空飞机
-        inlet  = [域xMin → core.xMin] × 全 yz
-        outlet = [core.xMax → 域xMax] × 全 yz
-        bottom/top = [core.xy] × [域zMin → core.zMin] / [core.zMax → 域zMax]
-        farfield_ym/yp = x 取 core 段，y 取域与 core 之间，z 全高
-    7 块互不重叠、恰好铺满 core→域盒 的壳层；相邻界面由 WTM 的
-    Apply Share Topology 自动 Joining（真机 18 对界面 skewness 0.79）。
+        core = 飞机包围盒外扩 core_margin_mm，挖空飞机
+        fluid_pad_x0 = [域xMin → core.xMin] × 全 yz（上游/入口板）
+        fluid_pad_x1 = [core.xMax → 域xMax] × 全 yz（下游/出口板）
+        fluid_pad_z0/z1 = [core.xy] × [域zMin → core.zMin] / [core.zMax → 域zMax]
+        fluid_pad_y0/y1 = x 取 core 段，y 取域与 core 之间，z 全高
+    7 块互不重叠、恰好铺满 core→域盒 的壳层；相邻界面由 WTM 自动 Joining
+    （真机 18 对界面 skewness 0.79）。**Join 后界面区仍被 WTM 记为 wall**，
+    由 aeroharness/mesh_post.py 的 h5 双层补丁统一改成 interior
+    （求解器 TUI 拒绝 zone-type interior，只能在文件层修）。
 
     每个实体都做**实体级命名**（v_solidsonly 路线：solid + 名字都存活），
     配合 assembly=0 导出，名字端到端进 zone 名。
@@ -482,14 +490,15 @@ def build_slab7_domain(src_step: str | Path, out_dir: str | Path,
         _log(f"  {name:<12} V={vol:7.2f} m^3", log_p)
         return (name, cut)
 
+    # ⚠️ 命名铁律见 docstring：body 名绝不能含 BC 关键字。
     parts = [
-        slab("fluid_core",   cx0, cx1, cy0, cy1, cz0, cz1),   # 含飞机
-        slab("inlet",        ox,  cx0, oy,  oy + sy, oz, oz + sz),
-        slab("outlet",       cx1, ox + sx, oy, oy + sy, oz, oz + sz),
-        slab("bottom",       cx0, cx1, cy0, cy1, oz, cz0),
-        slab("top",          cx0, cx1, cy0, cy1, cz1, oz + sz),
-        slab("farfield_ym",  cx0, cx1, oy,  cy0,  oz, oz + sz),
-        slab("farfield_yp",  cx0, cx1, cy1, oy + sy, oz, oz + sz),
+        slab("fluid_core",     cx0, cx1, cy0, cy1, cz0, cz1),   # 含飞机
+        slab("fluid_pad_x0",   ox,  cx0, oy,  oy + sy, oz, oz + sz),
+        slab("fluid_pad_x1",   cx1, ox + sx, oy, oy + sy, oz, oz + sz),
+        slab("fluid_pad_z0",   cx0, cx1, cy0, cy1, oz, cz0),
+        slab("fluid_pad_z1",   cx0, cx1, cy0, cy1, cz1, oz + sz),
+        slab("fluid_pad_y0",   cx0, cx1, oy,  cy0,  oz, oz + sz),
+        slab("fluid_pad_y1",   cx0, cx1, cy1, oy + sy, oz, oz + sz),
     ]
 
     # 组装 compound 并做实体级命名
@@ -697,7 +706,14 @@ def build_fluid_domain(src_step: str | Path, out_dir: str | Path,
 
 
 def run_geometry(cfg: dict, workdir: str | Path) -> dict:
-    """pipeline geometry 步骤入口：从 cfg 读源构型与域参数，产出流体域 STEP。"""
+    """pipeline geometry 步骤入口：从 cfg 读源构型与域参数，产出流体域 STEP。
+
+    geometry.builder 选后端：
+      "single"（默认）—— build_fluid_domain，单体挖空域（域面无法单独设 BC，
+                          仅适合 demo/通道类）
+      "slab7"         —— build_slab7_domain，7 体域（外流场标准路线：
+                          core + 6 块 pad，外表面可独立设 BC）
+    """
     from .config import ROOT
     workdir = Path(workdir)
     workdir.mkdir(parents=True, exist_ok=True)
@@ -710,7 +726,11 @@ def run_geometry(cfg: dict, workdir: str | Path) -> dict:
         src_p = ROOT / src_p
     if not src_p.exists():
         return {"ok": False, "error": f"源构型不存在: {src_p}"}
+    builder = str(geo.get("builder", "single")).lower()
     try:
+        if builder == "slab7":
+            return build_slab7_domain(src_p, workdir, margin=geo.get("margin"),
+                                      core_margin_mm=float(geo.get("core_margin_mm", 50.0)))
         return build_fluid_domain(src_p, workdir, margin=geo.get("margin"))
     except Exception as exc:  # noqa: BLE001 - 几何失败要带原始异常回诊断
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}

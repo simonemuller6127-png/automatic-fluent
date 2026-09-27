@@ -605,10 +605,33 @@ def cmd_pipeline(args) -> int:
         if not steps["mesh"].get("ok"):
             _write_pipeline_summary(cfg, steps)
             return 1
+        out_mesh = steps["mesh"].get("out_mesh") or str(ROOT / out)
+        # ---- Step 2.5: 网格后处理（watertight 多体域必备）----
+        # WTM 把 Join 后的界面区写成 wall，两面单元封死每块体（流场无法建立，
+        # 力恒为零；求解器 TUI 拒绝 zone-type interior）。mesh_post 在文件层把
+        # "两侧都有单元"的 zone 统一改成 interior（判据通用，单体网格零改动）。
+        if backend == "watertight":
+            try:
+                from .mesh_post import patch_msh_zones
+            except ImportError as exc:
+                print(f"    网格后处理不可用: {exc}")
+                steps["mesh"]["patch"] = {"ok": False, "error": str(exc)}
+                _write_pipeline_summary(cfg, steps)
+                return 1
+            print("    网格后处理: 两面界面区 -> interior ...")
+            pr = patch_msh_zones(out_mesh)
+            steps["mesh"]["patch"] = pr
+            if not pr.get("ok"):
+                print(f"    网格后处理失败: {pr.get('error')}")
+                _write_pipeline_summary(cfg, steps)
+                return 1
+            print(f"    -> {pr['patched'] and len(pr['patched']) or 0} 个两面区已修正 "
+                  f"({pr['out_mesh']})")
+            out_mesh = pr["out_mesh"]
         # 网格产物必须回灌给求解器：否则求解仍按 case.mesh_file 读旧网格
         # （demo_channel.json 里生成物是 channel2d.msh，而 case.mesh_file 是
         #  channel_box.stl —— 管线"串行"但数据并未相连）。
-        cfg["case"]["mesh_file"] = steps["mesh"].get("out_mesh") or str(ROOT / out)
+        cfg["case"]["mesh_file"] = out_mesh
     else:
         steps["mesh"] = {"skipped": True, "reason": "pipeline.mesh.enabled=false"}
 
