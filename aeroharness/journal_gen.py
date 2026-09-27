@@ -167,6 +167,18 @@ def build_quality_lines(cfg: dict) -> list[str]:
     return ["/mesh/check", "/mesh/quality"] if cfg["run"].get("mesh_check") else []
 
 
+def build_cell_zone_fix_lines(cfg: dict) -> list[str]:
+    """cell 区类型纠正（WTM 启发式可能把部分 slab 判成 solid）。
+
+    真机 2026-09-27：7 体域里 top/bottom/farfield_ym/farfield_yp 被判 solid，
+    求解器报 "Flow boundary zone adjacent to a solid zone — MUST be fixed"。
+    纠正命令：/define/boundary-conditions/modify-zones/zone-type <zone> fluid
+    （注意：/define/boundary-conditions/fluid <zone> 是单向的，只接受已是 fluid 的区）
+    """
+    tui = cfg.get("tui") or {}
+    return list(tui.get("cell_zone_type_fix") or [])
+
+
 def build_mesh_scale_lines(cfg: dict) -> list[str]:
     """网格单位换算：meshing 产出的网格是 CAD 声明单位（本项目=毫米），
     求解前必须缩放到米，否则雷诺数/力系数全部差 1000 倍
@@ -209,6 +221,8 @@ def expected_steps(cfg: dict) -> list[str]:
     steps = ["read_mesh"]
     if (cfg.get("case") or {}).get("mesh_unit_mm"):
         steps.append("mesh_scale")  # 读网格后立刻缩放到米（P0-5）
+    if (cfg.get("tui") or {}).get("cell_zone_type_fix"):
+        steps.append("cell_zone_fix")
     steps.append("setup_models")
     if cfg["physics"].get("gravity"):
         steps.append("gravity")
@@ -265,6 +279,7 @@ def render_journal(cfg: dict, params: dict | None, run_id: str, attempt: int) ->
         "params_kv_lines": "\n".join(build_param_lines(kv)),
         "mesh_file": _q(mesh_path),
         "mesh_scale_section": _section(build_mesh_scale_lines(cfg), "mesh_scale"),
+        "cell_zone_fix_section": _section(build_cell_zone_fix_lines(cfg), "cell_zone_fix"),
         "model_section": _section(build_model_lines(cfg), "setup_models"),
         "gravity_section": _section(build_gravity_lines(cfg), "gravity"),
         "bc_section": bc_section,

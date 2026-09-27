@@ -404,6 +404,169 @@ def export_clean_solid(shape, out_step: Path, expect_volume_mm3: float | None = 
     return result
 
 
+def build_slab7_domain(src_step: str | Path, out_dir: str | Path,
+                        margin: dict | None = None,
+                        core_margin_mm: float = 50.0,
+                        log_path: Path | None = None) -> dict:
+    """7 体域构造（2026-09-27，P1 收尾）：core(挖空飞机) + 6 块域面板。
+
+    为什么需要它：单体域的**域面全部并入 interior**，无法设 inlet/outlet/far-field
+    边界条件（无压力驱动 -> cd/cl 恒为 0）。把域盒切成"含飞机的核心区 + 6 块板"，
+    WTM 会为每块板生成独立边界 zone，**并按名字自动设置 BC 类型**
+    （velocity-inlet / pressure-outlet / pressure-far-field，真机验证）。
+
+    构造要点（**切片不能碰飞机**，否则飞机被切成多段导致表面网格失败）：
+        core   = 飞机包围盒外扩 core_margin_mm，挖空飞机
+        inlet  = [域xMin → core.xMin] × 全 yz
+        outlet = [core.xMax → 域xMax] × 全 yz
+        bottom/top = [core.xy] × [域zMin → core.zMin] / [core.zMax → 域zMax]
+        farfield_ym/yp = x 取 core 段，y 取域与 core 之间，z 全高
+    7 块互不重叠、恰好铺满 core→域盒 的壳层；相邻界面由 WTM 的
+    Apply Share Topology 自动 Joining（真机 18 对界面 skewness 0.79）。
+
+    每个实体都做**实体级命名**（v_solidsonly 路线：solid + 名字都存活），
+    配合 assembly=0 导出，名字端到端进 zone 名。
+    """
+    import cadquery as cq
+    from OCP.STEPControl import STEPControl_Writer, STEPControl_StepModelType
+    from OCP.Interface import Interface_Static
+    from OCP.TopoDS import TopoDS_Compound
+    from OCP.BRep import BRep_Builder
+
+    src_step = Path(src_step)
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    log_p = log_path or (out_dir / "build_domain.log")
+    m = {"upstream": 2.0, "downstream": 3.0, "lateral": 1.0, "vertical": 0.75}
+    if margin:
+        m.update(margin)
+    K = 1000.0
+    mm = 0.001
+
+    ac = cq.importers.importStep(str(src_step))
+    _make_writable(src_step)
+    # 桥接装配间隙（否则 WTM 报 3-free-edges）
+    solids_in = ac.solids().vals()
+    if len(solids_in) > 1:
+        solids_in, _ = bridge_close_gaps(solids_in, log_path=log_p)
+    ac = cq.Workplane("XY").newObject(solids_in)
+    abb = ac.val().BoundingBox()
+    L, W, H = abb.xlen, abb.ylen, abb.zlen
+    _log(f"7体域: 构型 L={L:.0f} W={W:.0f} H={H:.0f} mm, "
+         f"实体={len(solids_in)}", log_p)
+
+    # 未挖空的域盒
+    ox = abb.xmin - m["upstream"] * L
+    oy = abb.ymin - m["lateral"] * W
+    oz = abb.zmin - m["vertical"] * H
+    sx = L + (m["upstream"] + m["downstream"]) * L
+    sy = W + 2 * m["lateral"] * W
+    sz = H + 2 * m["vertical"] * H
+    dxm, dym, dzm = sx * mm, sy * mm, sz * mm   # 域尺寸（米，仅记录）
+    _log(f"  域盒 size=({dxm:.1f},{dym:.1f},{dzm:.1f}) m", log_p)
+
+    # core = 飞机 bbox 外扩 core_margin
+    cm = float(core_margin_mm)
+    cx0, cx1 = abb.xmin - cm, abb.xmax + cm
+    cy0, cy1 = abb.ymin - cm, abb.ymax + cm
+    cz0, cz1 = abb.zmin - cm, abb.zmax + cm
+    _log(f"  core: [{cx0:.0f},{cx1:.0f}]x[{cy0:.0f},{cy1:.0f}]x[{cz0:.0f},{cz1:.0f}]"
+         f" (+{cm}mm)", log_p)
+
+    wp = cq.Workplane("XY")
+    def slab(name, x0, x1, y0, y1, z0, z1):
+        box = wp.box(x1 - x0, y1 - y0, z1 - z0,
+                     centered=(False, False, False)).translate((x0, y0, z0))
+        cut = box.cut(ac)
+        vol = cut.val().Volume() / 1e9
+        _log(f"  {name:<12} V={vol:7.2f} m^3", log_p)
+        return (name, cut)
+
+    parts = [
+        slab("fluid_core",   cx0, cx1, cy0, cy1, cz0, cz1),   # 含飞机
+        slab("inlet",        ox,  cx0, oy,  oy + sy, oz, oz + sz),
+        slab("outlet",       cx1, ox + sx, oy, oy + sy, oz, oz + sz),
+        slab("bottom",       cx0, cx1, cy0, cy1, oz, cz0),
+        slab("top",          cx0, cx1, cy0, cy1, cz1, oz + sz),
+        slab("farfield_ym",  cx0, cx1, oy,  cy0,  oz, oz + sz),
+        slab("farfield_yp",  cx0, cx1, cy1, oy + sy, oz, oz + sz),
+    ]
+
+    # 组装 compound 并做实体级命名
+    b = BRep_Builder()
+    comp = TopoDS_Compound()
+    b.MakeCompound(comp)
+    for _n, p in parts:
+        b.Add(comp, p.val().wrapped)
+
+    out_step = out_dir / "fluid_domain_slab7.step"
+    named_ok = _export_named_solids(parts, out_step, log_p)
+    if not named_ok:
+        Interface_Static.SetCVal_s("write.step.schema", "AP214IS")
+        Interface_Static.SetIVal_s("write.step.assembly", 0)
+        Interface_Static.SetCVal_s("write.step.unit", "MM")
+        sw = STEPControl_Writer()
+        sw.Transfer(comp, STEPControl_StepModelType.STEPControl_AsIs, True)
+        sw.Write(str(out_step))
+    _make_writable(out_step)
+
+    # 回读自检：solids 必须 = 7
+    rb = cq.importers.importStep(str(out_step))
+    n_solids = len(rb.solids().vals())
+    vol = rb.val().Volume() / 1e9
+    meta = {"n_parts": len(parts), "solids_readback": n_solids,
+            "volume_m3": vol, "core_margin_mm": cm,
+            "domain_size_m": [dxm, dym, dzm],
+            "margin": m, "parts": [{"name": n, "V_m3": p.val().Volume() / 1e9}
+                                   for n, p in parts],
+            "named": named_ok, "out_step": str(out_step)}
+    ok = (n_solids == len(parts))
+    _log(f"  导出自检: solids={n_solids} (期望 {len(parts)}) V={vol:.2f} m^3 "
+         f"ok={ok}", log_p)
+    if not ok:
+        return {"ok": False, "error": f"7体域导出自检失败：solids={n_solids}", "meta": meta}
+    return {"ok": True, "step": str(out_step), "meta": meta}
+
+
+def _export_named_solids(parts, out_step: Path, log_path=None) -> bool:
+    """7 体域的实体级命名导出（v_solidsonly 路线：每个 solid 一个 top-level 名字）。
+
+    真机验证（2026-09-27）：solid + 名字都能存活到 STEP，且 WTM 会把 body 名
+    带进 zone 名（freeparts-inlet 等）并据此自动设置 BC 类型。
+    """
+    from OCP.TDocStd import TDocStd_Document
+    from OCP.TCollection import TCollection_ExtendedString
+    from OCP.XCAFDoc import XCAFDoc_DocumentTool
+    from OCP.TDataStd import TDataStd_Name
+    from OCP.STEPCAFControl import STEPCAFControl_Writer
+    from OCP.STEPControl import STEPControl_StepModelType
+    from OCP.Interface import Interface_Static
+    from OCP.IFSelect import IFSelect_RetDone
+
+    try:
+        doc = TDocStd_Document(TCollection_ExtendedString("XmlOcaf"))
+        tool = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
+        for name, p in parts:
+            lbl = tool.AddShape(p.val().wrapped, False)  # 独立 top-level solid
+            TDataStd_Name.Set_s(lbl, TCollection_ExtendedString(name))
+        Interface_Static.SetCVal_s("write.step.schema", "AP214IS")
+        Interface_Static.SetIVal_s("write.step.assembly", 0)
+        Interface_Static.SetCVal_s("write.step.unit", "MM")
+        w = STEPCAFControl_Writer()
+        w.Transfer(doc, STEPControl_StepModelType.STEPControl_AsIs)
+        status = w.Write(str(out_step))
+        text = out_step.read_text(encoding="utf-8", errors="replace")
+        hits = [n for n, _ in parts if ("'%s'" % n) in text]
+        if log_path:
+            _log(f"  实体级命名: {len(hits)}/{len(parts)} 落盘"
+                 f"（缺: {sorted(set(n for n, _ in parts) - set(hits)) or '无'}）", log_path)
+        return status == IFSelect_RetDone and len(hits) == len(parts)
+    except Exception as exc:  # noqa: BLE001
+        if log_path:
+            _log(f"  实体级命名失败({exc})，退回普通导出", log_path)
+        return False
+
+
 def build_fluid_domain(src_step: str | Path, out_dir: str | Path,
                        margin: dict | None = None,
                        min_size_m: float = 0.05,

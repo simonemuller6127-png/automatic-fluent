@@ -1,0 +1,219 @@
+{
+  "case": {
+    "name": "jigefeiji_solve",
+    "mesh_file": "runs/P1F/airplane_7b.msh.h5",
+    "dim": "3d",
+    "precision": "single",
+    "description": "真实飞机干净构型（jigefeiji.STEP，7 实体，L=3.112m W=0.845m H=4.170m V=0.367m^3）全链路算例：cadquery 无头建外流场域 -> Fluent watertight 网格 -> 求解 -> 受力/收敛。真机校准见 docs/realmachine_findings_20260924.md。zone 名需按实际网格核对（watertight 自动命名，非 E10 的 wall.feiiji）。",
+    "mesh_unit_mm": true,
+    "_mesh_unit_note": "meshing 产出的网格是 CAD 声明单位（MM），求解前必须 /mesh/scale 0.001 缩到米，否则 Re/力系数差 1000 倍。"
+  },
+  "fluent": {
+    "mode": "real",
+    "exe": "D:/Ansys-2023R1/ANSYS Inc/v222/fluent/ntbin/win64/fluent.exe",
+    "parallel": 4,
+    "timeout_s": 3600
+  },
+  "physics": {
+    "model": "ke-standard",
+    "gravity": [
+      0.0,
+      0.0,
+      -9.81
+    ]
+  },
+  "bc": {
+    "inlet": {
+      "zone": "11705",
+      "type": "velocity-inlet",
+      "vmag": 50.0,
+      "turb_intensity": 5.0,
+      "turb_viscosity_ratio": 10.0,
+      "set_type": false
+    },
+    "outlet": {
+      "zone": "11922",
+      "type": "pressure-outlet",
+      "gauge_pressure": 0.0,
+      "set_type": false
+    }
+  },
+  "methods": {
+    "enabled": true,
+    "pressure": 2,
+    "momentum": 2,
+    "turb_kinetic": 2,
+    "turb_dissipation": 2,
+    "relax_momentum": 0.7,
+    "relax_k": 0.7,
+    "relax_epsilon": 0.7
+  },
+  "run": {
+    "n_iter": 200,
+    "wall_zone": "freeparts-fluid_core-freeparts-fluid_core:1",
+    "force_file": "forces.lis",
+    "force_report_style": "C3",
+    "reference": {
+      "density": 1.225,
+      "velocity": 50.0,
+      "area": 0.75,
+      "length": 3.112,
+      "_note": "area 取机翼参考面积近似(0.845m 翼展 * ~0.89m 平均弦长)；按试验/文献核定后改。length=机长。"
+    },
+    "convergence": {
+      "residual_target": 0.001,
+      "min_iter": 100
+    },
+    "mesh_check": true,
+    "flux_report": false
+  },
+  "objective": {
+    "type": "coefficient_match",
+    "targets": {
+      "cd": 0.03,
+      "cl": 0.25
+    },
+    "weights": {
+      "cd": 1.0,
+      "cl": 1.0
+    },
+    "require_converged": false,
+    "fail_penalty": 1000000,
+    "_note": "targets 为占位（来流 50m/s、未知参考面积）；首跑出 cd/cl 基线后回填，用于 optimize 的收敛判据。"
+  },
+  "geometry": {
+    "cad_step": "D:/Wechat/communicate/xwechat_files/wxid_rkaprsgm8h1w32_6642/msg/file/2026-08/jigefeiji.STEP",
+    "_note": "干净构型 STEP 路径。① 文件不能带只读属性，否则 Fluent 报成 'not found'。② bridge_gaps 闭合多实体装配间隙（真机：垂尾与水平尾翼间 25.6mm，不桥接则 surface mesh 报 3-free-edges 失败）。ext_gap 必须为 0——外扩会在部件表面留下 1mm 碎片面，让体网格八叉树追细到分钟级。",
+    "margin": {
+      "upstream": 2.0,
+      "downstream": 3.0,
+      "lateral": 1.0,
+      "vertical": 0.75
+    },
+    "_margin_note": "域边距按飞机特征尺寸倍数；upstream 2L / downstream 3L / lateral 1W / vertical 0.75H，首轮保守取值保粗网格可跑完。",
+    "bridge_gaps": true,
+    "max_bridge_gap_mm": 50.0,
+    "ext_gap_mm": 0.0,
+    "ext_proj_mm": 1.0
+  },
+  "pipeline": {
+    "geometry": {
+      "enabled": true,
+      "backend": "cadquery"
+    },
+    "mesh": {
+      "enabled": true,
+      "backend": "watertight",
+      "out": "meshes/jigefeiji.msh",
+      "timeout_s": 1800,
+      "min_size": 0.05,
+      "max_size": 0.4,
+      "growth_rate": 1.25,
+      "size_function": "Curvature",
+      "vol_max": 0.4,
+      "parallel": 2,
+      "max_parallel": 4,
+      "local_sizing": [],
+      "boundary_layers": {
+        "type": "smooth-transition",
+        "n_layers": 14,
+        "rate": 1.15,
+        "transition_ratio": 0.5,
+        "_note": "官方 ahmed 示例值：14 层 / rate 1.15 / transition 0.5。粘性阻力主导时的调参对象。"
+      },
+      "setup_type": "The geometry consists of both fluid and solid regions and/or voids",
+      "capping_required": "No",
+      "_boi_note": "首轮置空：WTM 的 BOI 局部加密要求几何中存在封闭的 BOI 体面区，我们的域 STEP 不含。想要尾流加密应在 cadquery 阶段把一个 box 实体做进域几何并命名（后续增强项）。boi_wake.size=0.8 是米语义；之前写的 20.0 既错在单位也比飞机还大 6 倍。"
+    },
+    "solve": {
+      "enabled": true
+    },
+    "optimize": {
+      "enabled": false,
+      "trials": 10
+    }
+  },
+  "retry": {
+    "divergence": {
+      "max": 2,
+      "relax_scale": 0.85
+    },
+    "license": {
+      "max": 2,
+      "wait_s": 60
+    },
+    "mesh": {
+      "max": 1
+    },
+    "crash_timeout": {
+      "max": 1
+    }
+  },
+  "template": {
+    "solve": "journals/templates/solve_airplane.jou.tmpl",
+    "verified": "live"
+  },
+  "tui": {
+    "vmag_constant_answer": "yes",
+    "ke_production_limiter": "yes",
+    "outlet_pressure_field": "gauge-pressure",
+    "cell_zone_type_fix": [
+      "/define/boundary-conditions/modify-zones/zone-type freeparts-top fluid",
+      "/define/boundary-conditions/modify-zones/zone-type freeparts-bottom fluid",
+      "/define/boundary-conditions/modify-zones/zone-type freeparts-farfield_ym fluid",
+      "/define/boundary-conditions/modify-zones/zone-type freeparts-farfield_yp fluid"
+    ]
+  },
+  "_zone_note": "zone 名依赖 geom_cadquery.export_with_names 把命名写进 STEP 且 Fluent ImportNamedSelections=Yes 自动分面区。若首跑报 Invalid zone，以 meshing transcript 里的实际 zone 列表为准回填。",
+  "_zone_truth_20260927": {
+    "note": "真机 /define/boundary-conditions/list-zones 实测（run T6）",
+    "cell": [
+      "117 freeparts-...-7.9-1 (fluid)",
+      "112 fluid (fluid)"
+    ],
+    "face_wall": [
+      "8 freeparts-...:1 (wall)",
+      "11 freeparts-...:11 (wall)",
+      "1 freeparts-...:11-shadow (wall)"
+    ],
+    "face_interior": [
+      "119 interior--freeparts-...",
+      "228 interior--fluid"
+    ],
+    "conclusion": "WTM 把两个 cell zone 都识别为 fluid（无需纠正）；域面未成为独立 zone，飞机皮是 2 个 wall + 1 shadow"
+  },
+  "_zone_todo": "飞机皮 = freeparts-open-cascade-step-translator-7.9-1:1（4496 面）。inlet/outlet/farfield 未成独立 zone（被吞为 interior）——需 T7 前的拆区工作（路线5 mark/sep 或 slab 构造）。首跑先用压力出口简化为 wall 之外的唯一面，或先跑纯 wall 受力。",
+  "_zones_T6C": {
+    "fluid_cell": "fluid:1",
+    "solid_cell": "freeparts-open-cascade-step-translator-7.9-1",
+    "wall_solid_side": "freeparts-open-cascade-step-translator-7.9-1:1",
+    "wall_fluid_side": "freeparts-open-cascade-step-translator-7.9-1:11",
+    "note": "voids 串下区域识别正确：主域 fluid:1(air) / 飞机 solid(aluminum)。域面仍并入 interior--fluid:1（未拆 inlet/outlet）——首跑用 pressure-outlet 设在 interior 不可行，故首跑先做纯 wall 受力（滑移壁面+空压差不物理），cd/cl 基线待边界拆区完成后才有意义。"
+  },
+  "_zone_ids": {
+    "inlet_velocity": "11705",
+    "outlet_pressure": "11922",
+    "farfield": [
+      "29",
+      "30",
+      "11473",
+      "10296",
+      "9343",
+      "8290",
+      "7412",
+      "6593"
+    ],
+    "cell_fluid": [
+      "12146 fluid_core",
+      "12156 inlet",
+      "12161 outlet"
+    ],
+    "cell_needs_fluid_fix": [
+      "12141 top",
+      "12131 bottom",
+      "12151 farfield_ym",
+      "12136 farfield_yp"
+    ],
+    "note": "cell 类型纠正需要在 read-case 后加 modify-zones/zone-type 行（见 tui.cell_zone_type_fix）"
+  }
+}
