@@ -1,0 +1,128 @@
+{
+  "case": {
+    "name": "jigefeiji",
+    "mesh_file": "REPLACED_BY_PIPELINE",
+    "dim": "3d",
+    "precision": "single",
+    "description": "真实飞机干净构型（jigefeiji.STEP，7 实体，L=3.112m W=0.845m H=4.170m V=0.367m^3）全链路算例：cadquery 无头建外流场域 -> Fluent watertight 网格 -> 求解 -> 受力/收敛。真机校准见 docs/realmachine_findings_20260924.md。zone 名需按实际网格核对（watertight 自动命名，非 E10 的 wall.feiiji）。"
+  },
+  "fluent": {
+    "mode": "real",
+    "exe": "D:/Ansys-2023R1/ANSYS Inc/v222/fluent/ntbin/win64/fluent.exe",
+    "parallel": 4,
+    "timeout_s": 14400
+  },
+  "physics": {
+    "model": "ke-standard",
+    "gravity": [0.0, 0.0, -9.81]
+  },
+  "bc": {
+    "inlet": {
+      "zone": "REPLACE_INLET",
+      "type": "velocity-inlet",
+      "vmag": 50.0,
+      "turb_intensity": 5.0,
+      "turb_viscosity_ratio": 10.0,
+      "set_type": false
+    },
+    "outlet": {
+      "zone": "REPLACE_OUTLET",
+      "type": "pressure-outlet",
+      "gauge_pressure": 0.0,
+      "set_type": false
+    }
+  },
+  "methods": {
+    "enabled": true,
+    "pressure": 2,
+    "momentum": 2,
+    "turb_kinetic": 2,
+    "turb_dissipation": 2,
+    "relax_momentum": 0.7,
+    "relax_k": 0.7,
+    "relax_epsilon": 0.7
+  },
+  "run": {
+    "n_iter": 500,
+    "wall_zone": "REPLACE_WALL",
+    "force_file": "forces.lis",
+    "force_report_style": "C3",
+    "reference": {
+      "density": 1.225,
+      "velocity": 50.0,
+      "area": 0.75,
+      "length": 3.112,
+      "_note": "area 取机翼参考面积近似(0.845m 翼展 * ~0.89m 平均弦长)；按试验/文献核定后改。length=机长。"
+    },
+    "convergence": { "residual_target": 1e-3, "min_iter": 100 },
+    "mesh_check": true
+  },
+  "objective": {
+    "type": "coefficient_match",
+    "targets": { "cd": 0.03, "cl": 0.25 },
+    "weights": { "cd": 1.0, "cl": 1.0 },
+    "require_converged": true,
+    "fail_penalty": 1000000,
+    "_note": "targets 为占位（来流 50m/s、未知参考面积）；首跑出 cd/cl 基线后回填，用于 optimize 的收敛判据。"
+  },
+  "geometry": {
+    "cad_step": "REPLACE_WITH_STEP_PATH",
+    "_note": "干净构型 STEP 路径（.step/.x_t）。注意：文件不能带只读属性，否则 Fluent 报成 'not found'。",
+    "margin": { "upstream": 2.0, "downstream": 3.0, "lateral": 1.0, "vertical": 0.75 },
+    "_margin_note": "域边距按飞机特征尺寸倍数；upstream 2L / downstream 3L / lateral 1W / vertical 0.75H，首轮保守取值保粗网格可跑完。"
+  },
+  "pipeline": {
+    "geometry": {
+      "enabled": true,
+      "backend": "cadquery"
+    },
+    "mesh": {
+      "enabled": true,
+      "backend": "watertight",
+      "out": "meshes/jigefeiji.msh",
+      "timeout_s": 7200,
+      "min_size": 0.05,
+      "max_size": 0.4,
+      "growth_rate": 1.25,
+      "size_function": "Curvature",
+      "vol_max": 0.4,
+      "parallel": 2,
+      "max_parallel": 4,
+      "local_sizing": [
+        {
+          "name": "boi_wake",
+          "boi_type": "body-of-influence",
+          "size": 20.0,
+          "growth_rate": 1.15,
+          "_note": "尾流 BOI（官方 ahmed 示例 boi_1=20）；压差阻力主导时调小此值做尾流加密。BOI 必须封闭体。"
+        }
+      ],
+      "boundary_layers": {
+        "type": "smooth-transition",
+        "n_layers": 14,
+        "rate": 1.15,
+        "transition_ratio": 0.5,
+        "_note": "官方 ahmed 示例值：14 层 / rate 1.15 / transition 0.5。粘性阻力主导时的调参对象。"
+      },
+      "setup_type": "The geometry consists of only fluid regions with no voids",
+      "capping_required": "No"
+    },
+    "solve": { "enabled": true },
+    "optimize": { "enabled": false, "trials": 10 }
+  },
+  "retry": {
+    "divergence": { "max": 2, "relax_scale": 0.85 },
+    "license": { "max": 2, "wait_s": 60 },
+    "mesh": { "max": 1 },
+    "crash_timeout": { "max": 1 }
+  },
+  "template": {
+    "solve": "journals/templates/solve_airplane.jou.tmpl",
+    "verified": false
+  },
+  "tui": {
+    "vmag_constant_answer": "yes",
+    "ke_production_limiter": "yes",
+    "outlet_pressure_field": "gauge-pressure"
+  }
+}

@@ -70,6 +70,34 @@ KB: list[dict] = [
         "verify": "/mesh/check 无负体积；/mesh/quality 最低正交质量 >0.1。",
     },
     {
+        "id": "negvol_count_warning",
+        "pattern": r"(\d+)\s+cells?\s+with\s+non[- ]positive\s+volume",
+        "category": "mesh",
+        "cause": "网格含倒置/零体积单元。关键在于 Fluent **不会硬失败**：它对这些单元改用"
+                 "另一套离散格式继续算（真实输出原话 'A different numerical scheme will be "
+                 "applied to these elements'），所以残差可能照常收敛，但受力积分 Cd/Cl 已不可信。"
+                 "注意这行以 WARNING: 开头而非 Error:，此前永远进不了分类器，"
+                 "连带把它诱发的 divergence 也误判成纯数值问题。",
+        "fix": "别降松弛因子重试（治不了倒置单元）。先跑 "
+               "/mesh/repair-improve/report-poor-elements 定位坏单元；"
+               "再看 failpack/diagnosis.md「网格诊断」小节里最差单元的 cell/zone/location："
+               "① location 贴在壁面 → 尺寸/边界层问题，降 MaxSize 或加边界层；"
+               "② 成片落在流体区 → CAD 问题（缝隙/自交），回 SpaceClaim Repair 或走 FTM。",
+        "verify": "/mesh/check 不再出现 non-positive volume 警告；"
+                  "并且三档网格 GCI₁₂ < 1% 才算网格够（阈值不是网格够的唯一判据）。",
+    },
+    {
+        "id": "read_grid_section_abort",
+        "pattern": r"read_grid_section\s*:\s*aborted|unable to read coordinates of node",
+        "category": "mesh",
+        "cause": "网格文件本身有问题：字段约定不符（.msh 整数字段须十六进制、面 c0/c1 的"
+                 "左右单元语义搞反）或文件损坏/被占用。不是求解设置问题。",
+        "fix": "用 Fluent/GAMBIT 重新导出网格；若为自研网格生成器，"
+               "核对 tools/make_demo_msh.py 的十六进制输出与面方向约定"
+               "（c0 = (n0→n1) 行进方向左侧单元，见 no_face_with_given_nodes 条目）。",
+        "verify": "read-case 打印的 nodes/cells/faces 数量与预期一致，且无本条报错。",
+    },
+    {
         "id": "divergence_amg",
         "pattern": r"Divergence detected in AMG solver",
         "category": "divergence",
@@ -131,6 +159,86 @@ KB: list[dict] = [
         "fix": "加大下游长度（domain_sizing downstream ×1.5）并在出口设置真实 "
                "backflow 湍流强度/粘度比。runner 已在 metrics.backflow_suggestion 提示。",
         "verify": "transcript 无 reversed flow 告警。",
+    },
+    {
+        "id": "import_geometry_argname",
+        "pattern": r"Failed to update task .Import Geometry.*(not provided|File Name)",
+        "category": "config",
+        "cause": "v222 的 Import Geometry 任务参数名是 'FileName'（无空格），且不接独立的 "
+                 "'Length Unit' 参数。传成 'File Name'/'Length Unit' 报参数未提供。",
+        "fix": "模板用 Arguments=dict(**{'FileName': r'<cad路径>'})（本仓库 meshing.py 已修）；"
+               "单位由 CAD 自身声明决定（v222 能识别 STEP 的 MILLI+METRE）。",
+        "verify": "Import Geometry Execute 后 transcript 出现 faces/nodes 统计。",
+    },
+    {
+        "id": "cad_file_readonly_notfound",
+        "pattern": r"File \".+\.(?:step|stp|scdoc|x_t|pmdb)\" not found",
+        "category": "config",
+        "cause": "CAD 文件带只读属性（微信/邮件下载常见）时，Fluent 的 CAD 内核无法以"
+                 "读写方式打开，报错伪装成'文件不存在'，极具误导性。",
+        "fix": "导入前去掉只读：chmod u+w <文件>（Windows: attrib -R <文件>）。"
+               "meshing.run_watertight 已自动 chmod；直接手写 journal 时需自行处理。",
+        "verify": "重跑后 STEP-OK import_geometry 出现且 transcript 有 faces 统计。",
+    },
+    {
+        "id": "size_functions_illegal_value",
+        "pattern": r"Argument Name:\s*Size Functions",
+        "category": "config",
+        "cause": "v222 的 Size Functions 合法值只有 Curvature / Proximity / "
+                 "Curvature & Proximity——**没有 Basic**。传 Basic 会被参数校验拒绝。",
+        "fix": "改用合法值；性能靠调 MinSize/MaxSize/GrowthRate，不是换尺寸函数。",
+        "verify": "Generate the Surface Mesh 步骤出现 STEP-OK。",
+    },
+    {
+        "id": "tgrid_oom_stale_process",
+        "pattern": r"Out of Memory|CADToTGridConverter FAILED",
+        "category": "resource",
+        "cause": "【2026-09-24 根因更正】**主因是单位错配，不是内存不足**。v222 watertight "
+                 "的会话长度单位跟随导入 CAD 的声明单位（我们的域由 OCCT 导出=MM），"
+                 "若把 config 里的米（0.02）原样写进 journal，会被当成 0.02mm，曲率细分"
+                 "小 1000 倍，尺寸场构建要 150s+.sf 涨到 1.43GB，表现为 Out of Memory / "
+                 "8GB 常驻 / 20 分钟不完成——同一 bug 的三种表现。"
+                 "次因：异常退出留孤儿 CADReaders.py 进程（单次干净运行仅占 0.9~1.5GB，"
+                 "但多次实验叠加可达 10GB）。",
+        "fix": "① config 保持米（size_unit='m'），由 meshing.render_meshing_journal 的 _s() "
+               "统一 ×1000 转 mm（已修）；OCCT 不支持导出米制 STEP，write.step.unit='M' "
+               "会静默回落 MM。② 跑网格前 kill_stale_meshing()（已修，按 python*+CADReaders.py "
+               "双特征匹配，勿只按字符串）。",
+        "verify": "run_watertight 返回 unit_ok=True 且 session_unit='mm'；"
+                  "实测同几何 20 分钟 -> 17.9 秒。",
+    },
+    {
+        "id": "meshing_unit_mismatch",
+        "pattern": r"length unit = \[|Size field|faceting|\.sf\b",
+        "category": "config",
+        "cause": "journal 里的尺寸与 CAD 声明单位不一致（本项目最易踩：config 用米，"
+                 "v222 会话按 CAD 单位的毫米解释）。差 1000 倍 = 曲率细分爆炸。",
+        "fix": "统一走 render_meshing_journal(size_unit='m') 的换算；run_watertight 会"
+               "核对 CAD 头 SI_UNIT 并返回 unit_ok/session_unit，不符立即失败。",
+        "verify": "transcript 出现 Global Min size 被调整为预期毫米值；网格分钟级完成。",
+    },
+    {
+        "id": "surface_mesh_free_faces",
+        "pattern": r"Free faces still exists|surface meshing was not successful",
+        "category": "mesh",
+        "cause": "表面网格在某面上失败。两种根因：① min_size 相对最小面过小（真机："
+                 "飞机最小面 span 80mm，min=50mm 触发，relax 到 100mm 即消失）；"
+                 "② 几何确有共面重叠（随后会报 Found overlapping faces sharing edge）。"
+                 "注意：此时任务 getState() 可能不是 Out-of-date，assert 硬哨兵拦不住、"
+                 "STEP-OK 照打 → 必须靠本条的模式匹配兜底判失败。",
+        "fix": "阶梯处置：先放宽 min_size（几何审计已证无碎片面时首选）；仍不行则"
+               "geom_cadquery.heal_and_audit 的 UnifySameDomain/ShapeFix；再不行按官方"
+               "提示『Import the CAD outside the workflow and use Diagnostics』定位具体面。",
+        "verify": "missing_steps 含 surface_mesh 且 transcript 无该模式串。",
+    },
+    {
+        "id": "msh_h5_output",
+        "pattern": r"write-mesh|\.msh\.h5",
+        "category": "config",
+        "cause": "v222 的 /file/write-mesh x.msh 实际写出 **x.msh.h5**（HDF5 格式），"
+                 "按 x.msh 判存在会误报失败。",
+        "fix": "用 meshing._mesh_outputs() 同时匹配 x.msh / x.msh.h5（已修）。",
+        "verify": "run_watertight 返回 out_mesh 指向实际存在的路径。",
     },
 ]
 

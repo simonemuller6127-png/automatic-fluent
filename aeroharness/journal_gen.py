@@ -167,6 +167,22 @@ def build_quality_lines(cfg: dict) -> list[str]:
     return ["/mesh/check", "/mesh/quality"] if cfg["run"].get("mesh_check") else []
 
 
+def build_mesh_scale_lines(cfg: dict) -> list[str]:
+    """网格单位换算：meshing 产出的网格是 CAD 声明单位（本项目=毫米），
+    求解前必须缩放到米，否则雷诺数/力系数全部差 1000 倍
+    （2026-09-24 P0-5：OCCT 不支持导出米制 STEP，write.step.unit='M' 静默回落 MM）。
+
+    配置项 case.mesh_unit_mm=true 时输出 /mesh/scale 0.001 0.001 0.001。
+    紧随其后的 /mesh/check 会打印域尺寸，可作断言（与 domain_meta.json 比对，
+    差 1000 倍即说明接反了）。
+    """
+    case = cfg.get("case") or {}
+    if not case.get("mesh_unit_mm"):
+        return []
+    factor = case.get("mesh_scale_factor", 0.001)
+    return [f"/mesh/scale {factor} {factor} {factor}"]
+
+
 def build_param_lines(kv: dict) -> list[str]:
     out = []
     for k in sorted(kv):
@@ -190,7 +206,10 @@ def _section(lines: list[str], marker: str | None = None) -> str:
 
 
 def expected_steps(cfg: dict) -> list[str]:
-    steps = ["read_mesh", "setup_models"]
+    steps = ["read_mesh"]
+    if (cfg.get("case") or {}).get("mesh_unit_mm"):
+        steps.append("mesh_scale")  # 读网格后立刻缩放到米（P0-5）
+    steps.append("setup_models")
     if cfg["physics"].get("gravity"):
         steps.append("gravity")
     steps += ["bc_inlet", "bc_outlet"]
@@ -245,6 +264,7 @@ def render_journal(cfg: dict, params: dict | None, run_id: str, attempt: int) ->
     sections = {
         "params_kv_lines": "\n".join(build_param_lines(kv)),
         "mesh_file": _q(mesh_path),
+        "mesh_scale_section": _section(build_mesh_scale_lines(cfg), "mesh_scale"),
         "model_section": _section(build_model_lines(cfg), "setup_models"),
         "gravity_section": _section(build_gravity_lines(cfg), "gravity"),
         "bc_section": bc_section,
