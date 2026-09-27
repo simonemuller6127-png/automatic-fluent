@@ -39,6 +39,9 @@ RULES: list[dict] = [
         "patterns": [
             r"negative volume",
             r"non[- ]positive",
+            # 真机实证：.msh 字段约定不符/文件损坏时 Fluent 走这条路径，
+            # 原文不含 "negative volume"，此前会落到 config 规则（不可重试）里
+            r"read_grid_section\s*:\s*aborted",
             r"left[- ]handed",
             r"mesh\s+check.{0,20}fail",
             r"failed\s+to\s+(create|mesh|read).{0,30}(mesh|volume|face)",

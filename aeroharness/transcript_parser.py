@@ -34,6 +34,24 @@ KV_PAIR = re.compile(r"([A-Za-z_][A-Za-z0-9_\-\.]*)\s*=\s*([-+]?[\d\.eE+-]+|true
 
 REVERSED_FLOW = re.compile(r"reversed flow|reverse flow at", re.IGNORECASE)
 
+# ---- 网格诊断（真机 v222 实证原文，见 runs/demo_channel/*/failpack/transcript_tail.txt）----
+# "WARNING: 40 cells with non-positive volume detected." —— 以 WARNING: 开头而非 Error:，
+# 所以 ERROR_LINE 抓不到，error_rules 的 non[- ]positive 规则历史上从未被触发。
+NEG_VOLUME_LINE = re.compile(r"(\d+)\s+cells?\s+with\s+non[- ]positive\s+volume",
+                             re.IGNORECASE)
+POOR_ELEM_HINT = re.compile(
+    r"mesh\s+contains\s+elements\s+that\s+are\s+invalid\s+or\s+of\s+poor\s+quality",
+    re.IGNORECASE)
+# "Minimum Orthogonal Quality =  1.00000e+00 cell -1 on zone -1 (ID: 0 on partition: 0)
+#  at location ( 2.82976e+20,  7.93162e+34)"
+# 2D 两分量、3D 三分量；cell/zone/location 全部可选，兼容 mock 的 "... is <v>" 简写。
+MESH_QUALITY_LINE = re.compile(
+    rf"^\s*(Minimum\s+Orthogonal\s+Quality|Maximum\s+Aspect\s+Ratio)\s*(?:=|is)\s*({FLOAT_RE})"
+    rf"(?:\s+cell\s+(-?\d+)\s+on\s+zone\s+(-?\d+))?"
+    rf"(?:\s*\([^)]*\))?"
+    rf"(?:\s*at\s+location\s*\(([^)]*)\))?",
+    re.IGNORECASE | re.MULTILINE)
+
 
 class ForceParseError(Exception):
     """受力结果解析失败（宁可报错，不给错数）。"""
@@ -47,9 +65,62 @@ class ParsedTranscript:
     metrics: dict = field(default_factory=dict)       # METRIC 行 k=v
     quality: dict = field(default_factory=dict)
     residuals: dict = field(default_factory=dict)     # 最后一次迭代的残差
+    mesh: dict = field(default_factory=dict)         # /mesh/check + /mesh/quality 诊断
     iter_count: int = 0
     reversed_flow_warnings: int = 0                    # 出口回流告警计数（Q5 对策闭环）
     done: bool = False
+
+
+_QUALITY_KEYS = {"minimum orthogonal quality": "min_orthogonal",
+                 "maximum aspect ratio": "max_aspect_ratio"}
+
+
+def _norm_ws(s: str) -> str:
+    return re.sub(r"\s+", " ", s).strip().lower()
+
+
+def parse_mesh_diagnostics(text: str) -> dict:
+    """解析真机 /mesh/check 与 /mesh/quality 的网格诊断输出。
+
+    真机原文（v222 实证，夹具见 tools/selftest.py::test_mesh_diagnostics）::
+
+        Info: The mesh contains elements that are invalid or of poor quality.
+        WARNING: 40 cells with non-positive volume detected.
+        Minimum Orthogonal Quality =  1.00000e+00 cell -1 on zone -1 (ID: 0 ...) at location (...)
+        Maximum Aspect Ratio =  4.12311e+00 cell 27 on zone 1000 (ID: 28 ...) at location (...)
+
+    ``cell -1 / zone -1`` 是「无违规单元」的哨兵：此时 ``at location`` 是 Fluent 的占位
+    垃圾值（实测 2.8e20 / 7.9e+34），必须丢弃，不能拿去定位。
+
+    同一日志可能多次打印（改参数后重跑 /mesh/quality），取最后一次。匹配不到返回 ``{}``：
+    跨版本格式可能变，**解析失败绝不升级为算例失败**。
+    """
+    out: dict = {}
+    counts = [int(m.group(1)) for m in NEG_VOLUME_LINE.finditer(text)]
+    if counts:
+        out["negative_volume"] = max(counts)
+    if POOR_ELEM_HINT.search(text):
+        out["poor_elements_reported"] = True
+
+    last: dict[str, re.Match] = {}
+    for m in MESH_QUALITY_LINE.finditer(text):
+        key = _QUALITY_KEYS.get(_norm_ws(m.group(1)))
+        if key:
+            last[key] = m
+    for key, m in last.items():
+        out[key] = float(m.group(2))
+        cell = m.group(3)
+        zone = m.group(4)
+        loc = m.group(5)
+        if cell is not None:
+            out[f"{key}_cell"] = int(cell)
+        if zone is not None:
+            out[f"{key}_zone"] = int(zone)
+        if cell is not None and int(cell) >= 0 and loc:
+            coords = [float(x) for x in re.findall(FLOAT_RE, loc)]
+            if coords:
+                out[f"{key}_location"] = coords
+    return out
 
 
 def parse_surface_integrals(text: str) -> dict[str, dict[str, float]]:
@@ -201,6 +272,9 @@ def parse_transcript(text: str, expected_steps: list[str]) -> ParsedTranscript:
             pt.step_status[step] = "missing"
 
     pt.residuals, pt.iter_count = extract_residuals(text)
+    # 网格诊断走独立通道：不塞进 pt.errors —— "WARNING: N cells with non-positive volume"
+    # 是警告不是错误，置否由 runner 的负体积闸门按可配阈值决定（见 runner._mesh_gate）。
+    pt.mesh = parse_mesh_diagnostics(text)
     return pt
 
 

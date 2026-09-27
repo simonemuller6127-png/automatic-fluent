@@ -97,6 +97,47 @@ def run_root_base(cfg: dict) -> Path:
     return ROOT / "runs" / str(cfg["case"]["name"])
 
 
+# 负体积命中时允许被"让位"的类别：这些失败与网格无关（配置错误、许可证占用），
+# 它们才是当次运行的直接阻断原因，不该被网格根因覆盖。
+_MESH_GATE_YIELDS_TO = ("config", "license")
+
+
+def _mesh_gate(cfg: dict, mesh: dict, failure: dict | None) -> dict | None:
+    """负体积/劣质单元闸门：命中则按**根因**归类为 mesh，覆盖它诱发的 divergence。
+
+    阈值走 ``run.convergence``（默认 mesh_gate=true / max_negative_volume=0），与
+    ``post.converged_check`` 同款 ``.get()`` 内联默认风格——不新增任何配置文件字段。
+    需要临时关闭（信任 Fluent 的降级格式）时设 ``run.convergence.mesh_gate=false``。
+    """
+    conv = ((cfg.get("run") or {}).get("convergence")) or {}
+    if not conv.get("mesh_gate", True):
+        return failure
+    neg = int((mesh or {}).get("negative_volume", 0) or 0)
+    try:
+        limit = int(conv.get("max_negative_volume", 0) or 0)
+    except (TypeError, ValueError):
+        limit = 0
+    if neg <= limit:
+        return failure
+    if failure is not None and failure.get("category") in _MESH_GATE_YIELDS_TO:
+        return failure  # 配置/许可证问题才是当次直接原因，不改判
+    return {
+        "step": "read_mesh",
+        "category": "mesh",
+        "evidence_line": (
+            f"WARNING: {neg} cells with non-positive volume detected. "
+            f"(Fluent 对这些单元改用另一套离散格式继续计算，残差可能收敛但受力积分不可信)"),
+        "auto_retryable": True,
+        "suggestion": "负体积单元是根因，不要靠降松弛因子重试。定位命令："
+                      "/mesh/repair-improve/report-poor-elements；"
+                      "看 failpack/diagnosis.md 的「网格诊断」小节里最差单元的 "
+                      "cell/zone/location——贴壁面则调 MaxSize/边界层，"
+                      "成片落在流体区则回 CAD 查缝隙与自交。"
+                      f"（阈值 run.convergence.max_negative_volume={limit}，"
+                      "设 mesh_gate=false 可关闭本闸门）",
+    }
+
+
 def run_once(cfg: dict, params: dict | None = None, run_id: str = "r1",
              attempt: int = 1, run_dir: Path | None = None) -> RunResult:
     """渲染 journal → 抢许可证锁 → 执行 → 三通道解析 → 落盘。"""
@@ -166,8 +207,18 @@ def run_once(cfg: dict, params: dict | None = None, run_id: str = "r1",
             failure["category"] = "crash_timeout"
             failure["auto_retryable"] = True
 
-    # ---- 质量摘要（尽量从 mesh/check、mesh/quality 输出提取，缺失不致命）----
-    quality = dict(pt.quality)
+    # ---- 质量摘要：真机 /mesh/check+/mesh/quality 解析值 + mock 的 ; QUALITY 标记 ----
+    # 真机此前从未被解析（只认 mock 私有标记），导致 feedback 的网格质量告警对真机是死代码。
+    quality = {**pt.mesh, **pt.quality}
+
+    # ---- 负体积根因闸门（先于一切下游失败判定）----
+    # Fluent 读到含倒置单元的网格时不会硬失败，而是给这些单元套用另一套离散格式继续算
+    # （原话见真实输出 "A different numerical scheme will be applied to these elements"）。
+    # 于是残差可能"收敛"，但受力积分 Cd/Cl 已经不可信，而真正诱发的发散会把它误分类成
+    # divergence——降松弛因子重试纯属浪费机时。这里按根因改判为 mesh。
+    failure = _mesh_gate(cfg, pt.mesh, failure)
+    if pt.mesh:
+        summary["mesh_diagnostics"] = pt.mesh
 
     def _enrich_kb(failure: dict, text: str) -> dict:
         """Q3：知识库命中 → 给失败对象补 kb_hits（根因解释 + 具体修复指令）。"""
@@ -331,6 +382,31 @@ def make_failpack(run_dir: Path, failure: dict, transcript_text: str,
         "|---|---|",
     ]
     lines += [f"| {s} | {st} |" for s, st in step_status.items()]
+    mesh = getattr(pt, "mesh", {}) or {}
+    if mesh:
+        neg = mesh.get("negative_volume")
+        lines += ["", "## 网格诊断（/mesh/check + /mesh/quality 真机解析）", ""]
+        if neg is not None:
+            lines.append(
+                f"- **负体积单元数：{neg}** —— Fluent 已对其改用另一套离散格式，"
+                "残差可能收敛但受力积分不可信；这是根因，优先于发散/超时")
+        if mesh.get("poor_elements_reported"):
+            lines.append("- Fluent 报告：网格含无效或劣质单元")
+        for key, label in (("min_orthogonal", "最小正交质量"),
+                           ("max_aspect_ratio", "最大长宽比")):
+            if key not in mesh:
+                continue
+            cell, zone = mesh.get(f"{key}_cell"), mesh.get(f"{key}_zone")
+            loc = mesh.get(f"{key}_location")
+            where = ""
+            if cell is not None:
+                where = f"（最差单元 cell={cell}, zone={zone}"
+                where += f", 位置={loc}）" if loc else "；无违规单元，坐标为哨兵已丢弃）"
+            lines.append(f"- {label}：{mesh[key]}{where}")
+        lines += ["",
+                  "判读：最差单元贴着壁面 → 调 MaxSize / 边界层（尺寸问题）；"
+                  "成片落在流体区 → 回 CAD 查缝隙与自交（几何问题）。",
+                  "定位命令：`/mesh/repair-improve/report-poor-elements`"]
     kb_hits = failure.get("kb_hits") or []
     if kb_hits:
         lines += ["", "## 知识库命中（根因解释 + 修复指令，Q3）", ""]
@@ -349,8 +425,11 @@ def make_failpack(run_dir: Path, failure: dict, transcript_text: str,
         "",
         "1. category=config → 先看 `transcript_tail.txt` 中最后一个 Error 所在的 TUI 行；",
         "   若是 prompt 应答序列与版本不符，按 `references/prompt_calibration.md` 校准 config.tui.*，不要直接重试。",
-        "2. category=divergence/mesh/license/crash_timeout → 交给 runner 分级重试即可。",
-        "3. 修复后重跑：`python run_pipeline.py run --config ...`",
+        "2. category=divergence/license/crash_timeout → 交给 runner 分级重试即可。",
+        "3. category=mesh → **不要原样重试**：看上面「网格诊断」小节，"
+        "最差单元贴壁面就调 MaxSize/边界层，成片在流体区就回 CAD 修几何；"
+        "确认是偶发读盘失败（Read_Grid_Section: Aborted）才值得重试。",
+        "4. 修复后重跑：`python run_pipeline.py run --config ...`",
         "",
         "## transcript 尾部（最后 %d 行）" % TAIL_LINES,
         "",
@@ -462,37 +541,74 @@ def cmd_pipeline(args) -> int:
     steps: dict = {}
     pipe = cfg.get("pipeline") or {}
 
-    # ---- Step 1: geometry（SpaceClaim 无头；环境门控时可关闭）----
+    # ---- Step 1: geometry（后端二选一：cadquery 无头 / SpaceClaim）----
     geo_cfg = pipe.get("geometry") or {"enabled": False}
     if geo_cfg.get("enabled"):
-        from .geometry import run_spaceclaim
+        backend = str(geo_cfg.get("backend", "cadquery")).lower()
         work = ROOT / "runs" / str(cfg["case"]["name"]) / "pipeline_geometry"
-        print("== [1/3] geometry (SpaceClaim)")
-        steps["geometry"] = run_spaceclaim(cfg, work, timeout_s=float(geo_cfg.get("timeout_s", 600)))
+        work = Path(work) / f"{backend}_{int(time.time())}"
+        if backend == "cadquery":
+            # 无头路线：绕开 SpaceClaim /RunScript 门控（真机 2026-09-24 挂起）
+            from .geom_cadquery import run_geometry
+            print("== [1/3] geometry (cadquery/OCCT 无头建域)")
+            steps["geometry"] = run_geometry(cfg, work)
+        else:
+            from .geometry import run_spaceclaim
+            print("== [1/3] geometry (SpaceClaim)")
+            steps["geometry"] = run_spaceclaim(
+                cfg, work, timeout_s=float(geo_cfg.get("timeout_s", 600)))
         print(f"    ok={steps['geometry'].get('ok')}  detail={steps['geometry']}")
         if not steps["geometry"].get("ok"):
             print("    几何失败：见上条 log；管线终止（几何产物是网格的输入）")
             _write_pipeline_summary(cfg, steps)
             return 1
+        # 几何产物（流体域 CAD）回灌给 mesh 步骤
+        geo_step = steps["geometry"].get("step") or steps["geometry"].get("scdoc")
+        if geo_step:
+            cfg.setdefault("_pipeline", {})["cad_file"] = geo_step
     else:
         steps["geometry"] = {"skipped": True, "reason": "pipeline.geometry.enabled=false"}
 
-    # ---- Step 2: mesh（参数化网格生成器；watertight 路线见 aeroharness/meshing.py）----
+    # ---- Step 2: mesh（后端二选一：watertight 工作流 / 参数化生成器）----
     mesh_cfg = pipe.get("mesh") or {"enabled": False}
     if mesh_cfg.get("enabled"):
-        gen = ROOT / mesh_cfg.get("generator", "tools/make_demo_msh.py")
-        out = mesh_cfg.get("out", "meshes/channel2d.msh")
-        print("== [2/3] mesh generator")
-        proc = subprocess.run(
-            [sys.executable, str(gen), out, *(mesh_cfg.get("args", []))],
-            cwd=str(ROOT), capture_output=True, text=True, timeout=300)
-        steps["mesh"] = {"ok": proc.returncode == 0 and Path(ROOT / out).exists(),
-                          "out": str(ROOT / out), "returncode": proc.returncode,
-                          "log": proc.stdout[-800:] + proc.stderr[-400:]}
-        print(f"    ok={steps['mesh']['ok']}  out={out}")
-        if not steps["mesh"]["ok"]:
+        backend = str(mesh_cfg.get("backend", "generator")).lower()
+        if backend == "watertight":
+            from .meshing import kill_stale_meshing, run_watertight
+            cad = (cfg.get("_pipeline", {}).get("cad_file")
+                   or mesh_cfg.get("cad_file") or cfg["case"].get("mesh_file"))
+            if not cad:
+                print("    watertight 需要 CAD 输入（geometry 步骤产物或 mesh.cad_file）")
+                _write_pipeline_summary(cfg, steps)
+                return 1
+            out = str(ROOT / mesh_cfg.get("out", f"meshes/{cfg['case']['name']}.msh"))
+            print(f"== [2/3] mesh (watertight, cad={Path(cad).name})")
+            print("    清理残留网格进程（TGrid 很吃内存）...")
+            kill_stale_meshing()
+            steps["mesh"] = run_watertight(
+                cfg, ROOT / "runs" / str(cfg["case"]["name"]) / "pipeline_mesh",
+                cad, out, timeout_s=float(mesh_cfg.get("timeout_s", 3600)),
+                mesh_cfg=mesh_cfg)
+            print(f"    ok={steps['mesh'].get('ok')}  stats={steps['mesh'].get('stats')} "
+                  f"missing={steps['mesh'].get('missing_steps')}")
+        else:
+            gen = ROOT / mesh_cfg.get("generator", "tools/make_demo_msh.py")
+            out = mesh_cfg.get("out", "meshes/channel2d.msh")
+            print("== [2/3] mesh generator")
+            proc = subprocess.run(
+                [sys.executable, str(gen), out, *(mesh_cfg.get("args", []))],
+                cwd=str(ROOT), capture_output=True, text=True, timeout=300)
+            steps["mesh"] = {"ok": proc.returncode == 0 and Path(ROOT / out).exists(),
+                              "out": str(ROOT / out), "returncode": proc.returncode,
+                              "log": proc.stdout[-800:] + proc.stderr[-400:]}
+            print(f"    ok={steps['mesh']['ok']}  out={out}")
+        if not steps["mesh"].get("ok"):
             _write_pipeline_summary(cfg, steps)
             return 1
+        # 网格产物必须回灌给求解器：否则求解仍按 case.mesh_file 读旧网格
+        # （demo_channel.json 里生成物是 channel2d.msh，而 case.mesh_file 是
+        #  channel_box.stl —— 管线"串行"但数据并未相连）。
+        cfg["case"]["mesh_file"] = steps["mesh"].get("out_mesh") or str(ROOT / out)
     else:
         steps["mesh"] = {"skipped": True, "reason": "pipeline.mesh.enabled=false"}
 

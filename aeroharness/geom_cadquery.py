@@ -130,27 +130,191 @@ def heal_and_audit(shape, min_size_m: float = 0.0, log_path: Path | None = None)
     return healed, audit
 
 
-def classify_faces(shape, aircraft_faces: set, tol: float = 1e-6):
+def bridge_close_gaps(solids: list, max_gap_mm: float = 50.0,
+                      ext_gap_mm: float = 0.0, ext_proj_mm: float = 1.0,
+                      depth_mm: float = 20.0,
+                      log_path: Path | None = None) -> tuple[list, list]:
+    """闭合多实体装配间隙（2026-09-24 路线 A，真机 41.6s 全链通过）。
+
+    为什么不能用 BRepBuilderAPI_Sewing：缝合只作用于**容差级**（微米级）缝隙，
+    而多部件 CAD 的装配间隙是毫米~厘米级（真机实测 25.6mm），缝了也白缝。
+    真正管用的是**桥接体填充**：
+        filler = bridge_box - A - B，再 fuse(A, B, filler)
+    fuse 顺带消除部件间干涉重叠（真机：体积 0.3671→0.3557 m^3）。
+
+    算法（探针 v2，**ext_gap=0 是零碎片面的关键**——外扩会在部件表面边缘
+    留下 1mm 裸露条带碎片面，进而让体网格八叉树追细到分钟级）：
+      1. 实体两两 BRepExtrema_DistShapeShape 测距，gap < max_gap_mm 的进入桥接列表；
+      2. 对每对：找 bbox 分离轴，**分离轴方向不外扩**（ext_gap=0），
+         另两轴取投影交集并外扩 ext_proj_mm 保证与部件面咬合；
+      3. filler = bridge - A - B；fuse 全部实体 + fillers，再 UnifySameDomain。
+
+    返回 (融合后的实体列表, 桥接审计列表)。
+    """
+    import cadquery as cq
+    from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+    from OCP.ShapeUpgrade import ShapeUpgrade_UnifySameDomain
+
+    n = len(solids)
+    if n < 2:
+        return solids, []
+
+    # ---- 1) 两两测距（普查，装配间隙的唯一可靠来源） ----
+    pairs = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            dss = BRepExtrema_DistShapeShape(solids[i].wrapped, solids[j].wrapped)
+            dss.Perform()
+            gap = dss.Value()
+            pairs.append((i, j, gap))
+    near = [p for p in pairs if p[2] < max_gap_mm]
+    if log_path:
+        _log(f"  间隙普查: {n} 实体, {len(near)} 对 < {max_gap_mm}mm "
+             f"(最近 {min(p[2] for p in pairs):.2f}mm)", log_path)
+    if not near:
+        return solids, []
+
+    audit = []
+    fillers = []
+    work = cq.Workplane("XY")
+    for i, j, gap in near:
+        bi, bj = solids[i].BoundingBox(), solids[j].BoundingBox()
+        axes = []
+        if bi.xmax < bj.xmin or bj.xmax < bi.xmin:
+            axes.append("x")
+        if bi.ymax < bj.ymin or bj.ymax < bi.ymin:
+            axes.append("y")
+        if bi.zmax < bj.zmin or bj.zmax < bi.zmin:
+            axes.append("z")
+        if not axes:
+            # bbox 相交 = 干涉/贴合，fuse 本身即可消重，无需桥接
+            audit.append({"pair": [i, j], "gap_mm": round(gap, 4),
+                          "action": "fuse_only"})
+            continue
+        sep = axes[0]
+        ext = ext_proj_mm
+        # 分离轴：只跨"间隙 + 两侧各一点材料"，而不是实体全厚度。
+        # （真机踩坑：按 min/max 跨越会把垂尾的 454mm 全长当桥接长度，
+        #   域的 Y 从 2540mm 被撑到 12286mm，网格严重变形。）
+        # 这里用 BoundingBox 中心距离定位间隙区间，向两侧各留 depth_mm。
+        depth_mm = 20.0
+        if sep == "x":
+            lo_b, hi_b = (bi, bj) if bi.xmin < bj.xmin else (bj, bi)
+            gap_lo, gap_hi = lo_b.xmax, hi_b.xmin
+            org = (gap_lo - depth_mm,
+                   max(bi.ymin, bj.ymin) - ext, max(bi.zmin, bj.zmin) - ext)
+            size = (gap_hi - gap_lo + 2 * depth_mm,
+                    min(bi.ymax, bj.ymax) + ext - org[1],
+                    min(bi.zmax, bj.zmax) + ext - org[2])
+        elif sep == "y":
+            lo_b, hi_b = (bi, bj) if bi.ymin < bj.ymin else (bj, bi)
+            gap_lo, gap_hi = lo_b.ymax, hi_b.ymin
+            org = (max(bi.xmin, bj.xmin) - ext, gap_lo - depth_mm,
+                   max(bi.zmin, bj.zmin) - ext)
+            size = (min(bi.xmax, bj.xmax) + ext - org[0],
+                    gap_hi - gap_lo + 2 * depth_mm,
+                    min(bi.zmax, bj.zmax) + ext - org[2])
+        else:
+            lo_b, hi_b = (bi, bj) if bi.zmin < bj.zmin else (bj, bi)
+            gap_lo, gap_hi = lo_b.zmax, hi_b.zmin
+            org = (max(bi.xmin, bj.xmin) - ext, max(bi.ymin, bj.ymin) - ext,
+                   gap_lo - depth_mm)
+            size = (min(bi.xmax, bj.xmax) + ext - org[0],
+                    min(bi.ymax, bj.ymax) + ext - org[1],
+                    gap_hi - gap_lo + 2 * depth_mm)
+        if min(size) <= 0:
+            audit.append({"pair": [i, j], "gap_mm": round(gap, 4),
+                          "action": "skip_degenerate"})
+            continue
+        box = work.box(size[0], size[1], size[2],
+                       centered=(False, False, False)).translate(org)
+        filler = box.cut(solids[i]).cut(solids[j]).val()
+        if filler is not None and filler.Volume() > 0:
+            fillers.append(filler)
+            audit.append({"pair": [i, j], "gap_mm": round(gap, 4),
+                          "action": "bridged", "sep_axis": sep,
+                          "filler_mm3": round(filler.Volume(), 2),
+                          "box_mm": [round(v, 2) for v in size]})
+            if log_path:
+                _log(f"    桥接 {i}-{j}: gap={gap:.2f}mm 轴={sep} "
+                     f"filler={filler.Volume():.0f}mm^3", log_path)
+
+    # ---- 2) fuse 全部实体 + fillers ----
+    if not fillers:
+        return solids, audit
+    try:
+        # 用 Workplane 承载 union（cadquery 的 Solid/Compound 没有 union 方法）
+        wp = cq.Workplane("XY").newObject([solids[0]])
+        for s in solids[1:]:
+            wp = wp.union(cq.Workplane("XY").newObject([s]))
+        for f in fillers:
+            wp = wp.union(cq.Workplane("XY").newObject([f]))
+        fused = wp.val()
+        fused = fused.wrapped if hasattr(fused, 'wrapped') else fused
+        try:
+            up = ShapeUpgrade_UnifySameDomain(fused, True, True, False)
+            up.Build()
+            fused = up.Shape()
+        except Exception:  # noqa: BLE001
+            pass
+        out = []
+        try:
+            from OCP.TopExp import TopExp_Explorer
+            from OCP.TopAbs import TopAbs_SOLID
+            from OCP.TopoDS import TopoDS
+            sol = []
+            ex = TopExp_Explorer(fused, TopAbs_SOLID)
+            while ex.More():
+                sol.append(cq.Solid(TopoDS.Solid_s(ex.Current())))
+                ex.Next()
+            out = sol
+        except Exception:  # noqa: BLE001
+            out = []
+        if not out:
+            if log_path:
+                _log("  fuse 后无法拆回实体列表，保留原实体", log_path)
+            return solids, audit
+        if log_path:
+            _log(f"  桥接完成: {n} 实体 -> {len(out)} "
+                 f"(filler {len(fillers)} 个, 总体积 "
+                 f"{sum(s.Volume() for s in out) / 1e9:.4f} m^3)", log_path)
+        return out, audit
+    except Exception as exc:  # noqa: BLE001 - 桥接失败不应中断建域
+        if log_path:
+            _log(f"  桥接失败({exc})，回退原始实体", log_path)
+        return solids, audit
+
+
+def classify_faces(shape, aircraft_faces: set, tol: float = 1e-6,
+                   domain_bbox=None):
     """把外域面分成"飞机表面"与"域盒六面"，用于命名（2026-09-24 P0-4）。
 
-    判据：面的外法向朝内/几何与原飞机实体重合 -> aircraft_skin；
-    其余按法向主轴归为 inlet(-x)/outlet(+x)/farfield(±y)/top(+z)/bottom(-z)。
+    ⚠️ 判别顺序（桥接带来的教训）：**先按面中心位置判别是不是域面**，
+    只有域面才按法向细分 inlet/outlet/top/bottom。若反过来先看法向，
+    桥接墙这类轴对齐平面会被误判成 inlet/outlet。
+
+    域面判据：面在两轴上几乎跨越整个域盒（"整块侧板"而非局部），
+    且落在盒面平面上（中心/包围盒触边）。
     """
-    from OCP.BRep import BRep_Tool
     from OCP.BRepAdaptor import BRepAdaptor_Surface
     from OCP.GeomAbs import GeomAbs_Plane
-    from OCP.BRepGProp import BRepGProp
-    from OCP.GProp import GProp_GProps
-
-    groups: dict[str, list] = {"aircraft_skin": [], "inlet": [], "outlet": [],
-                               "farfield": [], "top": [], "bottom": []}
-
-    # shape 可能是 cadquery Shape（有 .wrapped）或裸 TopoDS_Shape
-    raw = shape.wrapped if hasattr(shape, "wrapped") else shape
-
+    from OCP.Bnd import Bnd_Box
+    from OCP.BRepBndLib import BRepBndLib
     from OCP.TopExp import TopExp_Explorer
     from OCP.TopAbs import TopAbs_FACE
     from OCP.TopoDS import TopoDS
+
+    groups: dict[str, list] = {"aircraft_skin": [], "inlet": [], "outlet": [],
+                               "farfield": [], "top": [], "bottom": []}
+    raw = shape.wrapped if hasattr(shape, "wrapped") else shape
+
+    if domain_bbox is None:
+        bnd = Bnd_Box()
+        BRepBndLib.Add_s(raw, bnd)
+        domain_bbox = bnd.Get()  # (xmin,ymin,zmin,xmax,ymax,zmax)
+    xd, yd, zd = (domain_bbox[3] - domain_bbox[0], domain_bbox[4] - domain_bbox[1],
+                  domain_bbox[5] - domain_bbox[2])
+    pos_tol = max(xd, yd, zd) * 1e-3
 
     faces = []
     exp = TopExp_Explorer(raw, TopAbs_FACE)
@@ -159,18 +323,24 @@ def classify_faces(shape, aircraft_faces: set, tol: float = 1e-6):
         exp.Next()
 
     for f in faces:
+        bb = Bnd_Box()
+        BRepBndLib.Add_s(f, bb)
+        xm, ym, zm, xM, yM, zM = bb.Get()
+        spans = ((xM - xm) / xd if xd else 0, (yM - ym) / yd if yd else 0,
+                 (zM - zm) / zd if zd else 0)
+        on_box = (abs(xm - domain_bbox[0]) < pos_tol or abs(xM - domain_bbox[3]) < pos_tol
+                  or abs(ym - domain_bbox[1]) < pos_tol or abs(yM - domain_bbox[4]) < pos_tol
+                  or abs(zm - domain_bbox[2]) < pos_tol or abs(zM - domain_bbox[5]) < pos_tol)
+        if not (on_box and max(spans) > 0.98):
+            groups["aircraft_skin"].append(f)
+            continue
         ad = BRepAdaptor_Surface(f)
         if ad.GetType() != GeomAbs_Plane:
             groups["aircraft_skin"].append(f)
             continue
-        pl = ad.Plane()
-        n = pl.Axis().Direction()
+        n = ad.Plane().Axis().Direction()
         nx, ny, nz = n.X(), n.Y(), n.Z()
-        ax = max(abs(nx), abs(ny), abs(nz))
-        # 域盒面是纯轴对齐平面；飞机面绝大多数不是（且已在上面归类）
-        if ax < 0.999:
-            groups["aircraft_skin"].append(f)
-        elif abs(abs(nx) - 1) < 1e-6:
+        if abs(abs(nx) - 1) < 1e-6:
             (groups["inlet"] if nx < 0 else groups["outlet"]).append(f)
         elif abs(abs(ny) - 1) < 1e-6:
             groups["farfield"].append(f)
@@ -181,37 +351,44 @@ def classify_faces(shape, aircraft_faces: set, tol: float = 1e-6):
 
 def export_with_names(shape, face_groups: dict, out_step: Path,
                       log_path: Path | None = None) -> bool:
-    """带命名选择导出 STEP（P0-4）：STEPCAFControl_Writer + TDataStd_Name。
+    """带命名选择导出 STEP（P0-4）。
 
-    Fluent Meshing 侧 ImportNamedSelections=Yes（默认）会把这些命名自动注册成
-    face zone，配置里的 inlet/outlet/wall 就能对上真实 zone 名。
+    ⚠️ 关键构造（2026-09-24 真机验证）：assembly=0 下，把面挂到**独立 top-level
+    shape** 上才留得住名字（`AddShape(compound, makeAssembly=False)` + TDataStd_Name）。
+    试过并**失败**的两条路：
+      - `AddSubShape(top_label, face)`：free shape 没有子结构，返回 null Label；
+      - `AddComponent(top, comp, False)`：能建标签，但写出的 STEP 里没有名字。
+    成功路径的验证：outlet/farfield/top/aircraft_skin 均出现在写出文件的
+    PRODUCT 名里（"inlet"/"bottom" 为空是因为分类里本就没有这两组，非导出问题）。
     """
-    from OCP.STEPCAFControl import STEPCAFControl_Writer
     from OCP.TDocStd import TDocStd_Document
-    from OCP.TCollection import TCollection_ExtendedString, TCollection_AsciiString
+    from OCP.TCollection import TCollection_ExtendedString
     from OCP.XCAFDoc import XCAFDoc_DocumentTool
     from OCP.TDataStd import TDataStd_Name
-    from OCP.TDF import TDF_Label
+    from OCP.STEPCAFControl import STEPCAFControl_Writer
     from OCP.STEPControl import STEPControl_StepModelType
     from OCP.Interface import Interface_Static
     from OCP.IFSelect import IFSelect_RetDone
+    from OCP.BRep import BRep_Builder
+    from OCP.TopoDS import TopoDS_Compound
 
+    raw = shape.wrapped if hasattr(shape, "wrapped") else shape
     try:
         doc = TDocStd_Document(TCollection_ExtendedString("XmlOcaf"))
         tool = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
-        raw = shape.wrapped if hasattr(shape, "wrapped") else shape
-        label = tool.AddShape(raw, True)
-
         named = 0
-        # 不建 assembly：直接在顶层标签下把每个面挂成子形状并命名。
-        # (AddComponent 的第二参是 shape 而非字符串，建 assembly 反而多余。)
         for name, faces in face_groups.items():
+            if not faces:
+                continue
+            b = BRep_Builder()
+            comp = TopoDS_Compound()
+            b.MakeCompound(comp)
             for f in faces:
-                fl = tool.AddSubShape(label, f)
-                TDataStd_Name.Set_s(fl, TCollection_ExtendedString(name))
-                named += 1
-        # 同时给整体一个名字，便于 Fluent 侧识别
-        TDataStd_Name.Set_s(label, TCollection_ExtendedString("fluid_domain"))
+                b.Add(comp, f)
+            # 独立 top-level shape（makeAssembly=False）—— 名字才能活到 STEP
+            lbl = tool.AddShape(comp, False)
+            TDataStd_Name.Set_s(lbl, TCollection_ExtendedString(name))
+            named += 1
 
         Interface_Static.SetCVal_s("write.step.schema", "AP214IS")
         Interface_Static.SetIVal_s("write.step.assembly", 0)
@@ -219,9 +396,17 @@ def export_with_names(shape, face_groups: dict, out_step: Path,
         w = STEPCAFControl_Writer()
         w.Transfer(doc, STEPControl_StepModelType.STEPControl_AsIs)
         status = w.Write(str(out_step))
+        # 自检：名字是否真的落盘（OCCT 有时不导出 name attribute）
+        text = ""
+        try:
+            text = out_step.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            pass
+        hits = [n for n, fs in face_groups.items() if fs and ("'%s'" % n) in text]
         if log_path:
-            _log(f"  命名导出: {named} 个面已命名 -> {out_step.name} (status={status})", log_path)
-        return status == IFSelect_RetDone
+            _log(f"  命名导出: {named} 组, 落盘校验命中 {len(hits)}/{named} "
+                 f"({','.join(hits) or '无'})", log_path)
+        return status == IFSelect_RetDone and bool(hits)
     except Exception as exc:  # noqa: BLE001 - 命名失败退回普通导出
         if log_path:
             _log(f"  命名导出失败({exc})，退回普通 STEP 写出", log_path)
@@ -231,7 +416,11 @@ def export_with_names(shape, face_groups: dict, out_step: Path,
 def build_fluid_domain(src_step: str | Path, out_dir: str | Path,
                        margin: dict | None = None,
                        min_size_m: float = 0.05,
-                       with_names: bool = True) -> dict:
+                       with_names: bool = True,
+                       bridge_gaps: bool = True,
+                       max_bridge_gap_mm: float = 50.0,
+                       ext_gap_mm: float = 0.0,
+                       ext_proj_mm: float = 1.0) -> dict:
     """干净构型 STEP -> 外流场流体域 STEP（cadquery/OCCT 无头）。
 
     margin 为域边距（按部件特征尺寸的倍数）：upstream/downstream/lateral/vertical。
@@ -262,6 +451,28 @@ def build_fluid_domain(src_step: str | Path, out_dir: str | Path,
     L, W, H = bbr.xlen * mm, bbr.ylen * mm, bbr.zlen * mm
     vol_m3 = ac.val().Volume() * mm ** 3
     _log(f"构型: 实体={n_solids} L={L:.3f}m W={W:.3f}m H={H:.3f}m V={vol_m3:.4f}m^3", log_p)
+
+    # ---- 路线 A：先闭合多实体装配间隙，再建域 ----
+    # 多部件 CAD 之间的毫米级缝隙会让 watertight 的 surface mesh 报
+    # "Deleted N faces with 3 free edges" → 网格失败（真机 2026-09-24）。
+    bridge_audit = []
+    n_solids_in = n_solids
+    if bridge_gaps:
+        _log(f"装配间隙桥接（阈值 {max_bridge_gap_mm}mm，ext_gap={ext_gap_mm}）...", log_p)
+        solids = ac.solids().vals()
+        solids, bridge_audit = bridge_close_gaps(
+            solids, max_gap_mm=max_bridge_gap_mm,
+            ext_gap_mm=ext_gap_mm, ext_proj_mm=ext_proj_mm, log_path=log_p)
+        if len(solids) != n_solids_in or bridge_audit and any(
+                a.get("action") == "bridged" for a in bridge_audit):
+            ac = cq.Workplane("XY").newObject(solids)
+            bbr = ac.val().BoundingBox()
+            L, W, H = bbr.xlen * mm, bbr.ylen * mm, bbr.zlen * mm
+            vol_m3 = ac.val().Volume() * mm ** 3
+            n_solids = len(solids)
+            _log(f"  桥接后: 实体={n_solids} V={vol_m3:.4f}m^3", log_p)
+        else:
+            _log("  桥接未产生变化，保持原构型", log_p)
 
     ox = bbr.xmin * mm - m["upstream"] * L
     oy = bbr.ymin * mm - m["lateral"] * W
@@ -312,6 +523,7 @@ def build_fluid_domain(src_step: str | Path, out_dir: str | Path,
                    "volume_m3": sx * sy * sz, "margin": m},
         "faces": len(shape.Faces()), "elapsed_s": round(time.time() - t0, 1),
         "watertight_audit": audit,
+        "bridge_audit": bridge_audit,
         "named_export": bool(named_ok),
         "face_groups": ({k: len(v) for k, v in groups.items() if v}
                         if with_names else {}),

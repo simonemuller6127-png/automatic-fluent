@@ -305,6 +305,9 @@ def run_watertight(cfg: dict, workdir: str | Path, cad_file: str,
             timed_out = True
             _kill_tree(proc.pid)
             rc = proc.returncode
+            # 超时会留下 fl_mpi2220/mpiexec 孤儿（_kill_tree 不一定杀全），
+            # 它们吃内存会污染后续实验 -> 自清（真机 2026-09-24 踩过）
+            kill_stale_meshing(verbose=False)
 
     text = transcript.read_text(encoding="utf-8", errors="replace")
 
@@ -351,37 +354,48 @@ def run_watertight(cfg: dict, workdir: str | Path, cad_file: str,
     # 定量信息：步骤完成情况 + 网格规模（供网格无关性/成本分析）
     from .transcript_parser import parse_expected_steps
     expected = parse_expected_steps(journal.read_text(encoding="utf-8"))
+    # 取**最后一次**出现：导入阶段的数字是 CAD 面数，表面网格后的才有意义
+    # （真机：导入 670 面 -> 表面网格 11522 面）
     stats = {}
     for label, pat in (("boundary_nodes", "boundary nodes"),
                        ("boundary_faces", "boundary faces")):
+        found = None
         for line in text.splitlines():
             if pat in line:
                 digits = "".join(c for c in line.split(pat)[0].split()[-1]
                                  if c.isdigit())
                 if digits:
-                    stats[label] = int(digits)
-                    break
+                    found = int(digits)
+        if found is not None:
+            stats[label] = found
     missing = [s for s in expected if f"STEP-OK {s}" not in text]
 
-    # 软失败兜底（2026-09-24 真机实测）：Fluent 报
-    # "The surface meshing was not successful" / "Free faces still exists" 时，
-    # 任务的 getState() 可能不是 Out-of-date，assert 拦不住、哨兵照打 -> 假通过。
-    # 这里把这类硬错误映射回对应步骤的 missing，让上层正确判失败。
-    soft_fail_markers = (
-        ("surface meshing was not successful", "surface_mesh"),
+    # 软失败兜底（2026-09-24 真机实测）：
+    # ① Fluent 报 "The surface meshing was not successful" / "Free faces still exists" 时，
+    #    任务 getState() 可能不是 Out-of-date，assert 拦不住、哨兵照打 -> 假通过。
+    #    必须用**整句**匹配：早先用 "was not succe" 会把
+    #    "Region identification was not successful" 误归属到 surface_mesh。
+    # ② "Region identification was not successful" 映射到 create_regions，且**降为 warning**
+    #    ——实测它非致命：体网格器自己做拓扑识别，链路照常走完。
+    fatal_markers = (
+        ("The surface meshing was not successful", "surface_mesh"),
         ("Free faces still exists", "surface_mesh"),
-        ("was not succe", "surface_mesh"),
-        ("has no faces", "surface_mesh"),
+        ("Deleted 1 faces with 3 free edges", "surface_mesh"),
+        ("Deleted 2 faces with 3 free edges", "surface_mesh"),
     )
-    soft_hits = [step for pat, step in soft_fail_markers if pat in text]
-    for step in soft_hits:
-        if step not in missing:
+    warn_markers = (
+        ("Region identification was not successful", "create_regions"),
+    )
+    for pat, step in fatal_markers:
+        if pat in text and step not in missing:
             missing.append(step)
+    warnings = [step for pat, step in warn_markers if pat in text]
 
     return {"ok": ok, "returncode": rc, "timed_out": timed_out,
             "journal": str(journal), "transcript": str(transcript),
             "out_mesh": str(produced[0]) if produced else None,
             "duration_s": time.time() - t0, "parallel": nproc,
             "missing_steps": missing, "stats": stats,
+            "warnings": warnings,
             "session_unit": got_unit, "unit_ok": unit_ok,
             "unit_error": unit_error}
