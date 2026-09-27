@@ -118,13 +118,17 @@ def patch_msh_zones(msh_path: str | Path, out_path: str | Path | None = None,
         if ref_type is None:
             ref_type = 2  # Fluent 惯例值；单流体区正常写出的网格必有 interior-- 区
 
-        # ---- 识别两面区：c1 存在非零单元索引 ----
+        # ---- 识别两面区：c0 与 c1 都有非零单元索引 ----
+        # ⚠️ 不能只测 c1：单面区（外表面/飞机表皮）的单元侧可能落在 c1（c0 全 0），
+        # 2026-09-28 真机事故：skin 被误判两面改成 interior，read-case 直接拒绝
+        # （"only one adjacent cell thread"）并中止。两面 = 两侧都有单元。
         two_sided: list[int] = []  # zone id
         rows_of: dict[int, int] = {}
         for k in range(1, n_rows + 1):
             zid = int(ids[k - 1])
+            c0 = f[f"meshes/1/faces/c0/{k}"][()]
             c1 = f[f"meshes/1/faces/c1/{k}"][()]
-            if (c1 != 0).any():
+            if (c0 != 0).any() and (c1 != 0).any():
                 two_sided.append(zid)
                 rows_of[zid] = k
 

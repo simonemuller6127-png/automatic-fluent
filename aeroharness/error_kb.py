@@ -276,6 +276,48 @@ KB: list[dict] = [
         "fix": "用 meshing._mesh_outputs() 同时匹配 x.msh / x.msh.h5（已修）。",
         "verify": "run_watertight 返回 out_mesh 指向实际存在的路径。",
     },
+    {
+        "id": "wtm_name_keyword_autotyping",
+        "pattern": r"two adjacent cell zones",
+        "category": "config",
+        "cause": "WTM 的 Update Boundaries 会**按 zone 名自动设置 BC 类型**（名字含 "
+                 "inlet/outlet/farfield 即命中）。7 体域的界面区名是两块 body 名的拼接"
+                 "（freeparts-<A>-freeparts-<B>），body 名含 BC 关键字就会把界面区误设成 "
+                 "BC——界面区两侧都有单元，报 'zone X has two adjacent cell zones'，"
+                 "且 BC 封死流道，力恒为零（真机 2026-09-27：0.0019 N）。",
+        "fix": "body 命名铁律：**绝不含 BC 关键字**（本项目用 fluid_core / fluid_pad_x0…）。"
+               "BC 类型由求解侧 journal 显式设置（bc.set_type + bc.side_inlet_zones）。"
+               "已误设的旧网格用 mesh_post.patch_msh_zones 修复。",
+        "verify": "read-case 零 'two adjacent cell zones' 错误；力报告非零。",
+    },
+    {
+        "id": "face_zone_interior_not_settable",
+        "pattern": r"Cannot change .* to interior|invalid command \[interior\]",
+        "category": "config",
+        "cause": "求解器 TUI 的 zone-type **不接受 interior**（interior 不是可设置的 "
+                 "BC 类型，'interior' 会报 invalid command 或 'Cannot change ... to "
+                 "interior because ...'）。两面单元的界面区（WTM Join 后默认记为 wall）"
+                 "无法在求解侧转成 interior。",
+        "fix": "在文件层修：aeroharness/mesh_post.patch_msh_zones 双层补丁"
+               "（zoneTopology zoneType + settings/Thread Variables），判据 = c1 有"
+               "非零单元索引（两侧都有单元）。",
+        "verify": "read-case 该 zone 显示为 mixed interior faces 且无 shadow 创建。",
+    },
+    {
+        "id": "msh_h5_zone_types_two_layers",
+        "pattern": r"creating .*-shadow|iostream stream error",
+        "category": "config",
+        "cause": ".msh.h5 的 zone 类型存**两层**：meshes/1/faces/zoneTopology/zoneType "
+                 "（整数码，interior=2/wall=3/PO=5/FF=9/VI=10）与 "
+                 "settings/Thread Variables（scheme 文本 `(39 (<id> <type> <name>)(\\n))`）。"
+                 "只补 mesh 层时 solver 建 domain 仍按 Thread Variables 建 shadow 对"
+                 "封死流道（真机：read 显示 interior 但 18 个 shadow 照建，力恒零）。"
+                 "另外补丁副本命名必须 **.msh.h5** 结尾，否则 read-case 去找 *.cas.h5。",
+        "fix": "mesh_post.patch_msh_zones 双层同步补丁；h5py 只允许原位写同 shape 同 "
+               "dtype 数组——**禁止删除/重建数据集**（变长字符串会被 Fluent HDF5 "
+               "读取器拒收，报 iostream stream error）。",
+        "verify": "read 段零 'creating ...-shadow'；界面区显示 mixed interior faces。",
+    },
 ]
 
 

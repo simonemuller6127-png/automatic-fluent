@@ -500,29 +500,33 @@ def test_mesh_post():
     src = tmp / "mini.msh.h5"
     with h5py.File(src, "w") as f:
         zt = f.create_group("meshes/1/faces/zoneTopology")
-        # 3 个面区：101 单面(wall 边界) / 102 两面(wall 界面, 需补) / 103 原生 interior
-        zt.create_dataset("id", data=np.array([101, 102, 103], dtype=np.int32))
-        zt.create_dataset("zoneType", data=np.array([3, 3, 2], dtype=np.int32))
-        zt.create_dataset("faceType", data=np.array([5, 5, 5], dtype=np.int32))
-        joined = ";".join(["pad_a:1", "pad_a-pad_b", "interior--pad_b"])
+        # 4 个面区：101 单面(wall, 单元在 c0) / 102 两面(wall 界面, 需补) /
+        # 103 原生 interior / 104 单面(wall, 单元在 c1 —— 2026-09-28 skin 误判回归)
+        zt.create_dataset("id", data=np.array([101, 102, 103, 104], dtype=np.int32))
+        zt.create_dataset("zoneType", data=np.array([3, 3, 2, 3], dtype=np.int32))
+        zt.create_dataset("faceType", data=np.array([5, 5, 5, 5], dtype=np.int32))
+        joined = ";".join(["pad_a:1", "pad_a-pad_b", "interior--pad_b", "skin:1"])
         zt.create_dataset("name", data=np.array([joined.encode()], dtype=f"S{len(joined)+8}"))
-        # c0/c1 按行号 1..3 组织；c1 非零 = 两面
+        # c0/c1 按行号 1..4 组织；两面 = c0 与 c1 都有非零
         f["meshes/1/faces/c0/1"] = np.array([1, 2], dtype=np.uint32)
         f["meshes/1/faces/c1/1"] = np.array([0, 0], dtype=np.uint32)
         f["meshes/1/faces/c0/2"] = np.array([1, 2], dtype=np.uint32)
         f["meshes/1/faces/c1/2"] = np.array([1, 2], dtype=np.uint32)
         f["meshes/1/faces/c0/3"] = np.array([1, 2, 3], dtype=np.uint32)
         f["meshes/1/faces/c1/3"] = np.array([1, 2, 3], dtype=np.uint32)
+        f["meshes/1/faces/c0/4"] = np.array([0, 0], dtype=np.uint32)
+        f["meshes/1/faces/c1/4"] = np.array([1, 2], dtype=np.uint32)
         blob_full = ('(0 "Zone variables:")\n'
                      '(39 (101 wall freeparts-pad_a:1)(\n))\n'
                      '(39 (102 wall freeparts-pad_a-pad_b)(\n))\n'
-                     '(39 (103 interior interior--pad_b)(\n))\n')
+                     '(39 (103 interior interior--pad_b)(\n))\n'
+                     '(39 (104 wall freeparts-skin:1)(\n))\n')
         tv = f.create_group("settings").create_dataset(
             "Thread Variables",
             data=np.array([blob_full.encode()], dtype=f"S{len(blob_full)+64}"))
         _ = tv
     rep = mesh_post.patch_msh_zones(src, log=None)
-    check("mesh_post 端到端：两面区自动识别并补丁",
+    check("mesh_post 端到端：两面区自动识别并补丁（单面区 skin 不误伤）",
           rep.get("ok") and rep.get("patched") == [102],
           str(rep))
     check("mesh_post 输出命名保持 .msh.h5",
@@ -530,12 +534,13 @@ def test_mesh_post():
     check("mesh_post 原网格未被修改", src.exists(), "")
     with h5py.File(rep["out_mesh"], "r") as f2:
         zt2 = f2["meshes/1/faces/zoneTopology"]
-        check("mesh_post 自检：补丁后 zoneType 生效",
-              int(zt2["zoneType"][1]) == 2 and int(zt2["zoneType"][0]) == 3, "")
+        check("mesh_post 自检：补丁后 zoneType 生效（skin 保持 wall）",
+              int(zt2["zoneType"][1]) == 2 and int(zt2["zoneType"][0]) == 3
+              and int(zt2["zoneType"][3]) == 3, "")
         tv2 = f2["settings/Thread Variables"][0].decode()
-        check("mesh_post 自检：Thread Variables 同步",
-              "(102 interior pad_a-pad_b)" in tv2 and "(101 wall freeparts-pad_a:1)" in tv2,
-              tv2[:200])
+        check("mesh_post 自检：Thread Variables 同步（skin 未动）",
+              "(102 interior pad_a-pad_b)" in tv2 and "(101 wall freeparts-pad_a:1)" in tv2
+              and "(104 wall freeparts-skin:1)" in tv2, tv2[:260])
 
     # ---- 3) 输出命名守卫 ----
     check("default_out_path：.msh.h5 后缀守卫",
