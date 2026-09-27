@@ -290,6 +290,14 @@ def run_watertight(cfg: dict, workdir: str | Path, cad_file: str,
     nproc = max(1, min(nproc, int(mesh_cfg.get("max_parallel", 4))))
 
     transcript = workdir / "transcript.log"
+    # 重跑幂等：清掉旧产物。/file/write-mesh 遇已存在文件会弹
+    # "OK to overwrite?" 覆盖提示，把 journal 后续的哨兵与 exit 吞掉
+    # （真机 2026-09-28：missing=[write_mesh] 且 DONE 缺失 → ok=False）。
+    for stale in _mesh_outputs(out_mesh):
+        try:
+            stale.unlink()
+        except OSError:
+            pass
     t0 = time.time()
     timed_out = False
     with open(transcript, "w", encoding="utf-8", errors="replace") as tf:
