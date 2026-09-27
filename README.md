@@ -4,7 +4,7 @@
 
 > 依据《AI 仿真调参调研报告》第 6 节 v2 方案落地：**journal 主路线 + 分层保底 + 6.9 错误反馈增强协议**。
 > 演示算例对齐 E10《Fluent 2023 外流场及其计算实例》（飞机 200 m/s，Cd≈0.0386 / Cl≈-0.0393）。
-> **状态：真实 Fluent 2022 R2（v222）全链路已验证跑通**（读网格→模型→边界→初始化→迭代→受力报告→解析落盘），离线自测 43/43 通过。
+> **状态：真实 Fluent 2022 R2（v222）全链路已验证跑通**（读网格→模型→边界→初始化→迭代→受力报告→解析落盘），离线自测 68/68 通过。
 
 ---
 
@@ -20,7 +20,7 @@ git clone https://github.com/simonemuller6127-png/automatic-fluent.git
 cd automatic-fluent
 
 python run_pipeline.py doctor        # ① 环境自检：发现 fluent.exe / 模板渲染 / mock 冒烟
-python tools/selftest.py             # ② 离线全链路自测（失败注入 + 重试 + 优化闭环），43 项
+python tools/selftest.py             # ② 离线全链路自测（失败注入 + 重试 + 优化闭环 + 网格诊断），68 项
 python run_pipeline.py run --config configs/demo_channel.json            # ③ mock 单次运行
 python run_pipeline.py optimize --config configs/demo_channel.json --trials 16   # ④ mock 试参闭环
 python run_pipeline.py pipeline --config configs/demo_channel.json        # ⑤ M7 一键管线（几何→网格→求解）
@@ -83,6 +83,11 @@ L0 底座    journals/templates/*.jou.tmpl（模板+{{占位符}}+哨兵协议�
 | ③ 错误分类器 + 知识库 | transcript 尾部 → `{step, category, evidence, auto_retryable, suggestion}`；规则库 `error_rules.py`；**`error_kb.py` 13 条真机排错条目**（根因解释+修复指令+验证方法） |
 | ④ 失败打包 | `runs/<case>/<run>/failpack/diagnosis.md`：失败步骤+哨兵状态表+知识库命中+transcript 尾 200 行+决策表 |
 | ⑤ 分级重试 | divergence（松弛因子×0.85，≤2 次）/ license（等待重试）/ mesh、crash_timeout（原样重试）；config 类不自动重试直接给诊断 |
+| ⑥ **负体积根因闸门** | 解析真机 `/mesh/check`+`/mesh/quality` 原文（负体积计数、正交质量、长宽比、坏单元 cell/zone/location）。Fluent 遇倒置单元**不硬失败**而是换一套离散格式继续算，残差会"收敛"但 Cd/Cl 不可信，且诱发的发散会被误分类成 `divergence`——闸门按根因改判为 `mesh`（对 config/license 让位）。阈值 `run.convergence.mesh_gate` / `max_negative_volume`，设 `mesh_gate=false` 可关闭。详见 [破面预防](docs/external_flow_domain_and_mesh.md#4-破面几何缺陷预防) |
+
+> ⑥ 是 2026-09 补齐的：修复前回放 916 份历史 transcript，`status=mesh` 命中数为 **0**——
+> 负体积那行以 `WARNING:` 开头，从来没进过分类器。修复后误伤面已核实为 0
+> （679 份 `status=ok` 的历史算例中含负体积的 0 份）。
 
 ## 试参闭环与后处理反馈（6.6 + Q4）
 
@@ -177,4 +182,13 @@ skills/aero-fluent/        # SKILL.md + references/prompt_calibration.md
   用于验证优化器闭环，不代表真实物理；真跑时目标请改 `objective.targets`；
 - Windows 下 transcript 里中文注释显示为乱码（Fluent 按 ANSI 读 journal），纯外观不影响解析；
 - 可压缩材料（ideal-gas + Sutherland）与耦合方案的 prompt 链已按官方示例翻译、
-  标注"待探针"，首次使用按校准指南定案。
+  标注"待探针"，首次使用按校准指南定案；
+- **WTM 网格阶段的拓扑诊断（`Describe Geometry` 的 cap/free/non-manifold 计数）尚未实现**：
+  仓库内没有任何真机 WTM 跑到该步骤的 transcript（现有探针全在 `Generate the Surface
+  Mesh` 报 `TGL_Process_Curvature_SF` 内存溢出），且 `meshing.run_watertight()` 目前
+  无调用者（`cmd_pipeline` 走参数化网格生成器）。此时**不应臆造正则**——负体积闸门
+  覆盖的是求解器阶段，网格阶段的拓扑体检仍是空白；
+- **重试语义的三个已知缺陷**（本轮只披露、未改，避免扩大爆炸半径）：
+  ① `failure.auto_retryable` 仅作展示，`run_with_retry` 实际只看 `category` 与
+  `retry.<category>.max`；② `attempt` 跨失败类别累计，不按类别清零；
+  ③ 超时会覆盖已有失败的 `category` 为 `crash_timeout`，可能掩盖原始根因。

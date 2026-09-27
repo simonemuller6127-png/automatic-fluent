@@ -34,12 +34,12 @@
       "set_type": true
     },
     "side_inlet_zones": [
-      "freeparts-fluid_pad_y0:1",
-      "freeparts-fluid_pad_y1:1",
-      "freeparts-fluid_pad_z0:1",
-      "freeparts-fluid_pad_z1:1"
+      { "zone": "freeparts-fluid_pad_y0:1", "type": "symmetry" },
+      { "zone": "freeparts-fluid_pad_y1:1", "type": "symmetry" },
+      { "zone": "freeparts-fluid_pad_z0:1", "type": "symmetry" },
+      { "zone": "freeparts-fluid_pad_z1:1", "type": "symmetry" }
     ],
-    "_sides_note": "7 体域的四块侧/顶/底板设为同来流 velocity-inlet（风洞式外流，与主入口共用 vmag/湍流值）。wall 方案是 P2 敏感性对照项。"
+    "_sides_note": "侧/顶/底板设 symmetry（外流场标准做法，近似自由大气）。⚠️ 不要用 velocity-inlet 默认 'Normal to Boundary'——侧面板法向是 ±y/±z，四股 50m/s 射流会对撞（真机 2026-09-28：出口 39% 回流、阻力小 500 倍）。"
   },
   "methods": {
     "enabled": true,
@@ -52,7 +52,8 @@
     "relax_epsilon": 0.7
   },
   "run": {
-    "n_iter": 500,
+    "n_iter": 2000,
+    "flux_report": true,
     "wall_zone": "freeparts-fluid_core-freeparts-fluid_core:1",
     "force_file": "forces.lis",
     "force_report_style": "C3",

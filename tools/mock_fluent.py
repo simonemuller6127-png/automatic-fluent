@@ -15,9 +15,13 @@
   - 产出 forces.lis + transcript 受力块 + result.ok/result.err 握手文件。
 
 失败注入（环境变量）：
-  AERO_MOCK_FAIL     = license | read_mesh | bc | diverge | report
+  AERO_MOCK_FAIL     = license | read_mesh | bc | diverge | report | negvol
   AERO_MOCK_FAIL_TIMES = 前几次尝试注入失败（默认 999999，配合 AERO_ATTEMPT 做重试测试）
   AERO_MOCK_SLEEP    = 启动后睡眠秒数（超时测试）
+
+  negvol 是特例：模拟真机读到含倒置单元的网格，**不**让流程失败，只在 read-case 后打
+  真实格式的 WARNING，其余 STEP-OK 照常输出——用于验证 runner 的负体积闸门能拦住
+  "残差收敛但受力不可信"的静默通过（该模式对每次 attempt 都生效，坏网格每次都坏）。
 """
 from __future__ import annotations
 
@@ -174,6 +178,17 @@ def main(argv) -> int:
                 cells = int(nx_mock * 4) if nx_mock else 2000
                 print(f"  Mesh Statistics: cells={cells}, faces={int(cells*2.3)}, "
                       f"nodes={int(cells*0.6)} (mock)", flush=True)
+                # negvol 注入：模拟真机读到含倒置单元的网格——Fluent 不硬失败，只警告，
+                # 继续把后续 STEP-OK 全部打出来。必须由 runner 的负体积闸门来拦，
+                # 这正是"静默通过"这一最危险形态的测试。
+                if fail_mode == "negvol":
+                    print("Info: The mesh contains elements that are invalid "
+                          "or of poor quality.", flush=True)
+                    print("      A different numerical scheme will be applied to "
+                          "these elements,", flush=True)
+                    print("      which may affect the quality of the solution.", flush=True)
+                    print("WARNING: 40 cells with non-positive volume detected.",
+                          flush=True)
                 emit_marker("; STEP-OK read_mesh")
             elif "viscous" in line:
                 print(line, flush=True)
@@ -225,8 +240,16 @@ def main(argv) -> int:
                 print("  Mesh check: Done (mock)", flush=True)
             elif "/mesh/quality" == line:
                 print(line, flush=True)
-                print("  Minimum Orthogonal Quality is 8.5e-01 (mock)", flush=True)
-                print("  Maximum Aspect Ratio is 1.2e+01 (mock)", flush=True)
+                # 真机格式（v222 实证）："=  "双空格 + cell/zone/location，2D 两分量。
+                # cell -1/zone -1 是"无违规单元"哨兵，其 location 是占位垃圾值——
+                # 解析器必须丢弃，这是哨兵用例。
+                print("  Minimum Orthogonal Quality =  1.00000e+00 cell -1 on zone -1 "
+                      "(ID: 0 on partition: 0) at location ( 2.82976e+20,  7.93162e+34)",
+                      flush=True)
+                print("  Maximum Aspect Ratio =  4.12311e+00 cell 27 on zone 1000 "
+                      "(ID: 28 on partition: 0) at location ( 7.50000e-02,  6.25000e-03)",
+                      flush=True)
+                # 保留 mock 私有标记（既有测试依赖），双通道并存
                 print("; QUALITY min_orthogonal=0.85 max_aspect=12 neg_vol=0", flush=True)
                 emit_marker("; STEP-OK mesh_check")
             else:

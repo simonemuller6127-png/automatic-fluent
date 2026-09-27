@@ -49,8 +49,12 @@ def build_bc_lines(cfg: dict) -> list[str]:
     lines: list[str] = []
     tui = cfg["tui"]
     inlet, outlet = cfg["bc"]["inlet"], cfg["bc"]["outlet"]
-    # 7 体域侧面板（bc.side_inlet_zones）：与主入口同类型、同来流值。
-    # 条目可以是 zone 名字符串，或 {zone, type}。
+    # 7 体域侧/顶/底面板（bc.side_inlet_zones）：
+    #   字符串条目  = 与主入口同类型同值（velocity-inlet 风洞式）
+    #   dict 条目   = {zone, type} 显式类型（如 symmetry——外流场推荐，
+    #                 无需赋值；⚠️ velocity-inlet 的 "Normal to Boundary"
+    #                 在侧面板会沿 ±y/±z 法向对吹，物理错误，必须给
+    #                 x 向分量或改 symmetry，2026-09-28 真机教训）
     sides = [(z if isinstance(z, str) else z["zone"],
               (None if isinstance(z, str) else z.get("type")))
              for z in (cfg["bc"].get("side_inlet_zones") or [])]
@@ -74,7 +78,10 @@ def build_bc_lines(cfg: dict) -> list[str]:
             f"/define/boundary-conditions/set/velocity-inlet {inlet['zone']} () "
             + " ".join(parts) + " ()"
         )
-        for zname, _ in sides:
+        # 只有 velocity-inlet 类型的侧面板需要赋值（symmetry 无参数）
+        for zname, ztype in sides:
+            if (ztype or inlet["type"]) != "velocity-inlet":
+                continue
             lines.append(
                 f"/define/boundary-conditions/set/velocity-inlet {zname} () "
                 + " ".join(parts) + " ()"
