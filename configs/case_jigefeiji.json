@@ -112,7 +112,9 @@
     "max_bridge_gap_mm": 50.0,
     "ext_gap_mm": 0.0,
     "ext_proj_mm": 0.0,
-    "_bridge_note": "ext_proj 必须为 0：1mm 咬合会在部件表面留碎片面，单体域 surface mesh 直接失败（真机 2026-09-28）。零碎片构造已在参数扫描中验证。"
+    "_bridge_note": "ext_proj 必须为 0：1mm 咬合会在部件表面留碎片面，单体域 surface mesh 直接失败（真机 2026-09-28）。零碎片构造已在参数扫描中验证。",
+    "depth_mm": 0.0,
+    "_depth_note": "桥接体沿分离轴精确跨间隙（depth=0）：嵌入部件 30mm 的版本会留近重合面残留，tessellation 非保角 -> Free faces（真机 2026-09-28）。"
   },
   "pipeline": {
     "geometry": {

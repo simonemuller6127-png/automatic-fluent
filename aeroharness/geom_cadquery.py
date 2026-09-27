@@ -199,7 +199,11 @@ def bridge_close_gaps(solids: list, max_gap_mm: float = 50.0,
         # （真机踩坑：按 min/max 跨越会把垂尾的 454mm 全长当桥接长度，
         #   域的 Y 从 2540mm 被撑到 12286mm，网格严重变形。）
         # 这里用 BoundingBox 中心距离定位间隙区间，向两侧各留 depth_mm。
-        depth_mm = 20.0
+        # ⚠️ depth_mm 必须为 0（精确跨间隙，2026-09-28 定案）：嵌入部件的版本
+        # 会留近重合面残留，fuse 后 tessellation 非保角 -> Free faces ->
+        # surface mesh 失败（真机：20mm 嵌入版 surface mesh 必挂，
+        # 精确跨间隙版 42s 全链通过、碎片面 0）。
+        depth_mm = float(depth_mm)
         if sep == "x":
             lo_b, hi_b = (bi, bj) if bi.xmin < bj.xmin else (bj, bi)
             gap_lo, gap_hi = lo_b.xmax, hi_b.xmin
@@ -583,7 +587,8 @@ def build_fluid_domain(src_step: str | Path, out_dir: str | Path,
                        bridge_gaps: bool = True,
                        max_bridge_gap_mm: float = 50.0,
                        ext_gap_mm: float = 0.0,
-                       ext_proj_mm: float = 1.0) -> dict:
+                       ext_proj_mm: float = 0.0,
+                       depth_mm: float = 0.0) -> dict:
     """干净构型 STEP -> 外流场流体域 STEP（cadquery/OCCT 无头）。
 
     margin 为域边距（按部件特征尺寸的倍数）：upstream/downstream/lateral/vertical。
@@ -625,7 +630,8 @@ def build_fluid_domain(src_step: str | Path, out_dir: str | Path,
         solids = ac.solids().vals()
         solids, bridge_audit = bridge_close_gaps(
             solids, max_gap_mm=max_bridge_gap_mm,
-            ext_gap_mm=ext_gap_mm, ext_proj_mm=ext_proj_mm, log_path=log_p)
+            ext_gap_mm=ext_gap_mm, ext_proj_mm=ext_proj_mm,
+            depth_mm=depth_mm, log_path=log_p)
         if len(solids) != n_solids_in or bridge_audit and any(
                 a.get("action") == "bridged" for a in bridge_audit):
             ac = cq.Workplane("XY").newObject(solids)
@@ -731,6 +737,12 @@ def run_geometry(cfg: dict, workdir: str | Path) -> dict:
         if builder == "slab7":
             return build_slab7_domain(src_p, workdir, margin=geo.get("margin"),
                                       core_margin_mm=float(geo.get("core_margin_mm", 50.0)))
-        return build_fluid_domain(src_p, workdir, margin=geo.get("margin"))
+        return build_fluid_domain(
+            src_p, workdir, margin=geo.get("margin"),
+            bridge_gaps=bool(geo.get("bridge_gaps", True)),
+            max_bridge_gap_mm=float(geo.get("max_bridge_gap_mm", 50.0)),
+            ext_gap_mm=float(geo.get("ext_gap_mm", 0.0)),
+            ext_proj_mm=float(geo.get("ext_proj_mm", 0.0)),
+            depth_mm=float(geo.get("depth_mm", 0.0)))
     except Exception as exc:  # noqa: BLE001 - 几何失败要带原始异常回诊断
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
