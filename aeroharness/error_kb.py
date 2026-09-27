@@ -232,6 +232,42 @@ KB: list[dict] = [
         "verify": "missing_steps 含 surface_mesh 且 transcript 无该模式串。",
     },
     {
+        "id": "describe_geometry_setup_type",
+        "pattern": r"Region identification was not successful|Describe Geometry task cannot",
+        "category": "config",
+        "cause": "Describe Geometry 的 SetupType 选错。v222 合法值只有三个："
+                 "'...only fluid regions with no voids' / '...fluid regions and voids' / "
+                 "'The geometry consists of both fluid and solid regions and/or voids'。"
+                 "挖空成带飞机腔的外流场域若用 'no voids'，域面被吞成 interior"
+                 "（真机 2026-09-27：泄漏出 454615 个 interior 面，zone 语义错乱）。",
+        "fix": "外流场域一律用 'The geometry consists of both fluid and solid regions "
+               "and/or voids'。注意 'fluid regions with voids' 不是合法串；传错时 "
+               "transcript 会列出合法值清单。",
+        "verify": "域面成为独立 face zone（list-zones 里不是 interior）。",
+    },
+    {
+        "id": "step_export_solids_zero",
+        "pattern": r"solids=0|导出自检",
+        "category": "config",
+        "cause": "STEP 导出把**面集合**而非**实体**写进了文件——回读 solids=0 + 一堆"
+                 "开放面壳。命名方案（AddSubShape / 自由命名形状）会踩这个坑。",
+        "fix": "用 geom_cadquery.export_clean_solid()：只写 solid，导出后强制回读自检"
+               "（solids>=1 / 体积相对误差<1%），solids=0 直接 fail fast。"
+               "边界命名不依赖 STEP。",
+        "verify": "domain_meta.json 的 export_check.ok=true（solids=1、shells=2）。",
+    },
+    {
+        "id": "front_could_not_be_closed",
+        "pattern": r"Front could not be closed at",
+        "category": "mesh",
+        "cause": "几何自相交：桥接盒与部件面**重叠**（ext_proj 外扩 1mm 造成）。"
+                 "TGrid 建面时无法闭合，报 Front could not be closed at eNNN(x,y,z)。"
+                 "（真机 2026-09-27，坐标落在桥接区与垂尾上）",
+        "fix": "bridge_close_gaps 的 ext_proj_mm 设 0（桥接盒只跨间隙本身，"
+               "不与部件面重叠），depth_mm 取 30mm 只跨 gap 不吃进部件内部。",
+        "verify": "transcript 无 'Front could not be closed'；surface_mesh 出现 STEP-OK。",
+    },
+    {
         "id": "msh_h5_output",
         "pattern": r"write-mesh|\.msh\.h5",
         "category": "config",

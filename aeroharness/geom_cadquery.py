@@ -131,8 +131,8 @@ def heal_and_audit(shape, min_size_m: float = 0.0, log_path: Path | None = None)
 
 
 def bridge_close_gaps(solids: list, max_gap_mm: float = 50.0,
-                      ext_gap_mm: float = 0.0, ext_proj_mm: float = 1.0,
-                      depth_mm: float = 20.0,
+                      ext_gap_mm: float = 0.0, ext_proj_mm: float = 0.0,
+                      depth_mm: float = 30.0,
                       log_path: Path | None = None) -> tuple[list, list]:
     """闭合多实体装配间隙（2026-09-24 路线 A，真机 41.6s 全链通过）。
 
@@ -146,7 +146,9 @@ def bridge_close_gaps(solids: list, max_gap_mm: float = 50.0,
     留下 1mm 裸露条带碎片面，进而让体网格八叉树追细到分钟级）：
       1. 实体两两 BRepExtrema_DistShapeShape 测距，gap < max_gap_mm 的进入桥接列表；
       2. 对每对：找 bbox 分离轴，**分离轴方向不外扩**（ext_gap=0），
-         另两轴取投影交集并外扩 ext_proj_mm 保证与部件面咬合；
+         另两轴取投影交集，**默认不外扩**（ext_proj=0）——外扩会让桥接盒与部件面
+         重叠，TGrid 报 "Front could not be closed at eNNN"（真机 2026-09-27 实证）。
+         深度 depth_mm 取 30mm，只跨间隙本身，不吃进部件内部；
       3. filler = bridge - A - B；fuse 全部实体 + fillers，再 UnifySameDomain。
 
     返回 (融合后的实体列表, 桥接审计列表)。
@@ -349,68 +351,57 @@ def classify_faces(shape, aircraft_faces: set, tol: float = 1e-6,
     return groups
 
 
-def export_with_names(shape, face_groups: dict, out_step: Path,
-                      log_path: Path | None = None) -> bool:
-    """带命名选择导出 STEP（P0-4）。
+def export_clean_solid(shape, out_step: Path, expect_volume_mm3: float | None = None,
+                       log_path: Path | None = None) -> dict:
+    """干净 solid-only STEP 导出 + **强制回读自检**（2026-09-27 落地）。
 
-    ⚠️ 关键构造（2026-09-24 真机验证）：assembly=0 下，把面挂到**独立 top-level
-    shape** 上才留得住名字（`AddShape(compound, makeAssembly=False)` + TDataStd_Name）。
-    试过并**失败**的两条路：
-      - `AddSubShape(top_label, face)`：free shape 没有子结构，返回 null Label；
-      - `AddComponent(top, comp, False)`：能建标签，但写出的 STEP 里没有名字。
-    成功路径的验证：outlet/farfield/top/aircraft_skin 均出现在写出文件的
-    PRODUCT 名里（"inlet"/"bottom" 为空是因为分类里本就没有这两组，非导出问题）。
+    为什么不做面命名（判死，双证据）：
+      证据1（本地回读）：AddSubShape 对面引用一律返回 null Label——那套结构无法
+        命名面，且会让导出物退化成"solids=0 + 37 个开放面壳"。
+      证据2（真机）：改用自由命名形状 + 实体并列，名字确实进了 STEP，但重合面
+        导致 watertight 表面网格 Join 时 node insertion failed。
+    结论：CAD 侧命名这条路放弃；边界命名改走**求解器侧拆区**（见 config _zone_todo）。
+
+    自检（fail fast，永久闭环"导出缺口"）：
+      - 回读后 solids 必须 >= 1（solids=0 是导出损坏的硬信号）
+      - 体积与期望一致（相对误差 <1%）
+      - 壳数记录下来供诊断（外域合法形态是 2 壳：域盒 + 飞机腔）
     """
-    from OCP.TDocStd import TDocStd_Document
-    from OCP.TCollection import TCollection_ExtendedString
-    from OCP.XCAFDoc import XCAFDoc_DocumentTool
-    from OCP.TDataStd import TDataStd_Name
-    from OCP.STEPCAFControl import STEPCAFControl_Writer
-    from OCP.STEPControl import STEPControl_StepModelType
+    from OCP.STEPControl import STEPControl_Writer, STEPControl_StepModelType
     from OCP.Interface import Interface_Static
-    from OCP.IFSelect import IFSelect_RetDone
-    from OCP.BRep import BRep_Builder
-    from OCP.TopoDS import TopoDS_Compound
 
     raw = shape.wrapped if hasattr(shape, "wrapped") else shape
-    try:
-        doc = TDocStd_Document(TCollection_ExtendedString("XmlOcaf"))
-        tool = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
-        named = 0
-        for name, faces in face_groups.items():
-            if not faces:
-                continue
-            b = BRep_Builder()
-            comp = TopoDS_Compound()
-            b.MakeCompound(comp)
-            for f in faces:
-                b.Add(comp, f)
-            # 独立 top-level shape（makeAssembly=False）—— 名字才能活到 STEP
-            lbl = tool.AddShape(comp, False)
-            TDataStd_Name.Set_s(lbl, TCollection_ExtendedString(name))
-            named += 1
+    Interface_Static.SetCVal_s("write.step.schema", "AP214IS")
+    Interface_Static.SetIVal_s("write.step.assembly", 0)
+    Interface_Static.SetCVal_s("write.step.unit", "MM")
+    w = STEPControl_Writer()
+    w.Transfer(raw, STEPControl_StepModelType.STEPControl_AsIs, True)
+    w.Write(str(out_step))
+    _make_writable(out_step)
 
-        Interface_Static.SetCVal_s("write.step.schema", "AP214IS")
-        Interface_Static.SetIVal_s("write.step.assembly", 0)
-        Interface_Static.SetCVal_s("write.step.unit", "MM")
-        w = STEPCAFControl_Writer()
-        w.Transfer(doc, STEPControl_StepModelType.STEPControl_AsIs)
-        status = w.Write(str(out_step))
-        # 自检：名字是否真的落盘（OCCT 有时不导出 name attribute）
-        text = ""
-        try:
-            text = out_step.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            pass
-        hits = [n for n, fs in face_groups.items() if fs and ("'%s'" % n) in text]
-        if log_path:
-            _log(f"  命名导出: {named} 组, 落盘校验命中 {len(hits)}/{named} "
-                 f"({','.join(hits) or '无'})", log_path)
-        return status == IFSelect_RetDone and bool(hits)
-    except Exception as exc:  # noqa: BLE001 - 命名失败退回普通导出
-        if log_path:
-            _log(f"  命名导出失败({exc})，退回普通 STEP 写出", log_path)
-        return False
+    # ---- 回读自检 ----
+    import cadquery as cq
+    rb = cq.importers.importStep(str(out_step))
+    rb_shape = rb.val()
+    n_solids = len(rb.solids().vals())
+    n_shells = len(rb_shape.Shells())
+    vol = rb_shape.Volume()
+    result = {"ok": False, "solids": n_solids, "shells": n_shells,
+              "volume_mm3": vol, "bytes": out_step.stat().st_size}
+    if n_solids < 1:
+        result["error"] = (f"导出损坏：回读 solids=0（期望>=1）。"
+                           f"这通常是把面而非实体写进了 STEP。")
+    elif expect_volume_mm3 and abs(vol - expect_volume_mm3) / max(
+            expect_volume_mm3, 1.0) > 0.01:
+        result["error"] = (f"体积不符：回读 {vol:.4g} vs 期望 "
+                           f"{expect_volume_mm3:.4g} mm^3（相对误差>1%）")
+    else:
+        result["ok"] = True
+    if log_path:
+        _log(f"  导出自检: solids={n_solids} shells={n_shells} "
+             f"V={vol / 1e9:.2f}m^3 ok={result['ok']}"
+             + (f" ({result['error']})" if result.get("error") else ""), log_path)
+    return result
 
 
 def build_fluid_domain(src_step: str | Path, out_dir: str | Path,
@@ -499,21 +490,27 @@ def build_fluid_domain(src_step: str | Path, out_dir: str | Path,
     _log("水密性修复（UnifySameDomain + ShapeFix）...", log_p)
     healed, audit = heal_and_audit(shape, min_size_m=min_size_m, log_path=log_p)
 
-    # ---- P0-4 边界命名：把面分成命名组并写入 STEP ----
+    # ---- 面分组（仅诊断；CAD 侧命名已判死，见 export_clean_solid docstring）----
     named_ok = False
+    groups = {}
     if with_names:
-        groups = classify_faces(healed, set())
-        summary = {k: len(v) for k, v in groups.items() if v}
-        _log(f"  面分组: {summary}", log_p)
+        try:
+            groups = classify_faces(healed, set())
+            summary = {k: len(v) for k, v in groups.items() if v}
+            _log(f"  面分组（仅诊断，不写入 STEP）: {summary}", log_p)
+        except Exception as exc:  # noqa: BLE001
+            _log(f"  面分组失败({exc})，不影响导出", log_p)
 
+    # ---- 干净 solid-only 导出 + 强制回读自检（solids=0 直接 fail fast）----
     out_step = out_dir / "fluid_domain.step"
-    if with_names:
-        named_ok = export_with_names(healed, groups, out_step, log_p)
-    if not named_ok:
-        sw = STEPControl_Writer()
-        sw.Transfer(healed, STEPControl_StepModelType.STEPControl_AsIs, True)
-        sw.Write(str(out_step))
-    _make_writable(out_step)
+    expect_vol = healed.Volume() if hasattr(healed, "Volume") else None
+    exp = export_clean_solid(healed, out_step, expect_volume_mm3=expect_vol,
+                             log_path=log_p)
+    if not exp["ok"]:
+        _log(f"  导出失败: {exp.get('error')}", log_p)
+        return {"ok": False, "error": exp.get("error", "STEP 导出自检失败"),
+                "export_check": exp, "log": str(log_p)}
+    named_ok = exp["ok"]
 
     meta = {
         "src": str(src_step), "out_step": str(out_step),

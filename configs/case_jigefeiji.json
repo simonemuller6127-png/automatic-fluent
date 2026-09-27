@@ -1,7 +1,7 @@
 {
   "case": {
     "name": "jigefeiji",
-    "mesh_file": "runs/T6/jigefeiji.msh.h5",
+    "mesh_file": "runs/T6C/jigefeiji.msh.h5",
     "dim": "3d",
     "precision": "single",
     "description": "真实飞机干净构型（jigefeiji.STEP，7 实体，L=3.112m W=0.845m H=4.170m V=0.367m^3）全链路算例：cadquery 无头建外流场域 -> Fluent watertight 网格 -> 求解 -> 受力/收敛。真机校准见 docs/realmachine_findings_20260924.md。zone 名需按实际网格核对（watertight 自动命名，非 E10 的 wall.feiiji）。",
@@ -24,7 +24,7 @@
   },
   "bc": {
     "inlet": {
-      "zone": "inlet",
+      "zone": "TODO_inlet",
       "type": "velocity-inlet",
       "vmag": 50.0,
       "turb_intensity": 5.0,
@@ -32,7 +32,7 @@
       "set_type": false
     },
     "outlet": {
-      "zone": "outlet",
+      "zone": "TODO_outlet",
       "type": "pressure-outlet",
       "gauge_pressure": 0.0,
       "set_type": false
@@ -50,7 +50,7 @@
   },
   "run": {
     "n_iter": 500,
-    "wall_zone": "aircraft_skin",
+    "wall_zone": "freeparts-open-cascade-step-translator-7.9-1:1",
     "force_file": "forces.lis",
     "force_report_style": "C3",
     "reference": {
@@ -120,7 +120,7 @@
         "transition_ratio": 0.5,
         "_note": "官方 ahmed 示例值：14 层 / rate 1.15 / transition 0.5。粘性阻力主导时的调参对象。"
       },
-      "setup_type": "The geometry consists of only fluid regions with no voids",
+      "setup_type": "The geometry consists of both fluid and solid regions and/or voids",
       "capping_required": "No",
       "_boi_note": "首轮置空：WTM 的 BOI 局部加密要求几何中存在封闭的 BOI 体面区，我们的域 STEP 不含。想要尾流加密应在 cadquery 阶段把一个 box 实体做进域几何并命名（后续增强项）。boi_wake.size=0.8 是米语义；之前写的 20.0 既错在单位也比飞机还大 6 倍。"
     },
@@ -157,5 +157,30 @@
     "ke_production_limiter": "yes",
     "outlet_pressure_field": "gauge-pressure"
   },
-  "_zone_note": "zone 名依赖 geom_cadquery.export_with_names 把命名写进 STEP 且 Fluent ImportNamedSelections=Yes 自动分面区。若首跑报 Invalid zone，以 meshing transcript 里的实际 zone 列表为准回填。"
+  "_zone_note": "zone 名依赖 geom_cadquery.export_with_names 把命名写进 STEP 且 Fluent ImportNamedSelections=Yes 自动分面区。若首跑报 Invalid zone，以 meshing transcript 里的实际 zone 列表为准回填。",
+  "_zone_truth_20260927": {
+    "note": "真机 /define/boundary-conditions/list-zones 实测（run T6）",
+    "cell": [
+      "117 freeparts-...-7.9-1 (fluid)",
+      "112 fluid (fluid)"
+    ],
+    "face_wall": [
+      "8 freeparts-...:1 (wall)",
+      "11 freeparts-...:11 (wall)",
+      "1 freeparts-...:11-shadow (wall)"
+    ],
+    "face_interior": [
+      "119 interior--freeparts-...",
+      "228 interior--fluid"
+    ],
+    "conclusion": "WTM 把两个 cell zone 都识别为 fluid（无需纠正）；域面未成为独立 zone，飞机皮是 2 个 wall + 1 shadow"
+  },
+  "_zone_todo": "飞机皮 = freeparts-open-cascade-step-translator-7.9-1:1（4496 面）。inlet/outlet/farfield 未成独立 zone（被吞为 interior）——需 T7 前的拆区工作（路线5 mark/sep 或 slab 构造）。首跑先用压力出口简化为 wall 之外的唯一面，或先跑纯 wall 受力。",
+  "_zones_T6C": {
+    "fluid_cell": "fluid:1",
+    "solid_cell": "freeparts-open-cascade-step-translator-7.9-1",
+    "wall_solid_side": "freeparts-open-cascade-step-translator-7.9-1:1",
+    "wall_fluid_side": "freeparts-open-cascade-step-translator-7.9-1:11",
+    "note": "voids 串下区域识别正确：主域 fluid:1(air) / 飞机 solid(aluminum)。域面仍并入 interior--fluid:1（未拆 inlet/outlet）——首跑用 pressure-outlet 设在 interior 不可行，故首跑先做纯 wall 受力（滑移壁面+空压差不物理），cd/cl 基线待边界拆区完成后才有意义。"
+  }
 }
