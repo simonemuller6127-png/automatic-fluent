@@ -252,6 +252,22 @@ def _plane_of(cent, extents, tol):
     return flags
 
 
+def _frac_on_extents(cent, extents, tol):
+    """质心落在**任意**范围面上的行占比（0~1）。
+
+    用于识别"聚合外表面大区"：未拆分时 6 个外表面共处一个 wall 区，
+    单个面的占比只有 ~1/6，必须按'任意面'合计占比判断。
+    """
+    (x0, x1), (y0, y1), (z0, z1) = extents
+    if not len(cent):
+        return 0.0
+    on = np.zeros(len(cent), dtype=bool)
+    for axis, (lo, hi) in ((0, (x0, x1)), (1, (y0, y1)), (2, (z0, z1))):
+        v = cent[:, axis]
+        on |= (np.abs(v - lo) < tol) | (np.abs(v - hi) < tol)
+    return float(np.nanmean(on))
+
+
 def split_boundary_and_identify(cfg: dict, mesh_path: str | Path,
                                 workdir: str | Path) -> dict:
     """单体域边界自动拆区（外流场管线专用步骤，2026-09-28）。
@@ -296,13 +312,13 @@ def split_boundary_and_identify(cfg: dict, mesh_path: str | Path,
         for k in range(1, len(ids) + 1):
             if ztypes[k - 1] != wall_code:
                 continue
-            flags = _plane_of(_zone_face_centroids(f, k), extents, tol)
-            if flags and max(fr for _, fr in flags) > 0.95:
+            frac_any = _frac_on_extents(_zone_face_centroids(f, k), extents, tol)
+            if frac_any > 0.9:
                 outer.append(int(ids[k - 1]))
     if len(outer) != 1:
         return {"ok": False,
                 "error": (f"外表面大区识别到 {len(outer)} 个（期望 1）：{outer}。"
-                          f"判据=wall 区且 95% 面质心落在域范围面上。")}
+                          f"判据=wall 区且 90% 以上面质心落在（任意）域范围面上。")}
     outer_id = outer[0]
 
     # ---- Pass 1：Fluent sep + 写拆分网格 ----
