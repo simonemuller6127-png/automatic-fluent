@@ -168,8 +168,11 @@ def build_gravity_lines(cfg: dict) -> list[str]:
     lines = [f"/define/operating-conditions/gravity yes {gx:.6g} {gy:.6g} {gz:.6g}"]
     rho_op = ph.get("operating_density")
     if rho_op:
-        lines.append("/define/operating-conditions/specify-operating-density yes")
-        lines.append(f"/define/operating-conditions/operating-density {float(rho_op):.6g}")
+        # v222 实测：operating-density 本身就是开关命令（"use operating density?
+        # [no]"），一行两答 = 开 yes + 数值；specify-operating-density 不存在
+        # （invalid command），分开写会引发应答链错位（真机 2026-09-28）。
+        lines.append(f"/define/operating-conditions/operating-density "
+                     f"yes {float(rho_op):.6g}")
     return lines
 
 
