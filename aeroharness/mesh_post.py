@@ -288,7 +288,9 @@ def split_boundary_and_identify(cfg: dict, mesh_path: str | Path,
     workdir = Path(workdir)
     workdir.mkdir(parents=True, exist_ok=True)
     stem = src.name[:-len(".msh.h5")] if src.name.endswith(".msh.h5") else src.stem
-    split_mesh = workdir / (stem + "_split.msh.h5")
+    # sep-face-zone-angle 是求解器命令 -> 拆区会话是 solver 模式，
+    # 产物用 /file/write-case 落盘（write-mesh 是 meshing 模式命令，不存在）
+    split_mesh = workdir / (stem + "_split.cas.h5")
 
     # ---- 离线：全域范围 + 识别外表面大区 ----
     with h5py.File(src, "r") as f:
