@@ -87,8 +87,8 @@
       "min_iter": 100
     },
     "mesh_check": true,
-    "fluent_residual_criteria": 1e-06,
-    "_criteria_note": "Fluent 内置残差判据 1e-3 会在 ~30 步自动停机（力收敛远滞后于残差），此键通过 convergence-criteria 命令压低到 1e-6，让 2000 迭代真正跑满、力值稳定。"
+    "fluent_residual_criteria": 0,
+    "_criteria_note": "fluent_residual_criteria=0: /solve/monitors/residual/criterion 0 = 禁用 Fluent 内置残差自动停机（类型 0），让 2000 迭代真正跑满、力值收敛；力收敛历史由分段迭代间的力报告自动记录。"
   },
   "objective": {
     "type": "coefficient_match",
