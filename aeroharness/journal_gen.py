@@ -382,10 +382,17 @@ def render_journal(cfg: dict, params: dict | None, run_id: str, attempt: int) ->
     n_iter = int(cfg["run"]["n_iter"])
     if n_iter >= 400:
         chunk = 500
-        chunks = [f"/solve/iterate {min(chunk, n_iter - i * chunk)}"
-                  for i in range((n_iter + chunk - 1) // chunk)]
+        report = (f"/report/forces/wall-forces no "
+                  f"{cfg['run']['wall_zone']} () 1 0 0 no")
+        parts = []
+        done = 0
+        while done < n_iter:
+            n = min(chunk, n_iter - done)
+            parts.append(f"/solve/iterate {n}")
+            parts.append(report)
+            done += n
         rendered = rendered.replace(f"/solve/iterate {n_iter}",
-                                    "\n".join(chunks))
+                                    "\n".join(parts))
     # 空行会让 Fluent 在当前菜单回显一次菜单列表（实测 v222），生成物压缩为无空行
     rendered = "\n".join(ln for ln in rendered.splitlines() if ln.strip()) + "\n"
     return rendered, mesh_path, sections["expected_steps"].split(",")
