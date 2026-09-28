@@ -144,11 +144,11 @@ def build_methods_lines(cfg: dict) -> list[str]:
         f"/solve/set/under-relaxation/{relax_names['epsilon']} {m['relax_epsilon']:.4g}",
     ]
     # Fluent 内置残差判据 1e-3 会在 ~30 步自动停机（力收敛远滞后于残差，
-    # 真机 2026-09-28：29 步停机时 cd 还在演化）。压低判据让 n_iter 跑满；
-    # 两条候选路径都给，路径不存在时报 invalid command 但 journal 继续执行。
-    criteria = float((cfg.get("run") or {}).get("fluent_residual_criteria", 0) or 0)
-    if criteria > 0:
-        lines.append(f"/solve/convergence-criteria/residual-criteria {criteria:.6g}")
+    # 真机 2026-09-28：29 步停机时 cd 还在演化）。criterion 0 = 禁用自动停机，
+    # 让 n_iter 跑满；力收敛历史由分段迭代间的力报告记录。
+    criteria = (cfg.get("run") or {}).get("fluent_residual_criteria", None)
+    if criteria is not None:
+        lines.append(f"/solve/monitors/residual/criterion {int(criteria)}")
     return lines
 
 
