@@ -134,7 +134,7 @@ def build_methods_lines(cfg: dict) -> list[str]:
         return []
     m = cfg["methods"]
     relax_names = cfg["tui"]["relax_var_names"]
-    return [
+    lines = [
         f"/solve/set/discretization-scheme/pressure {m['pressure']}",
         f"/solve/set/discretization-scheme/mom {m['momentum']}",
         f"/solve/set/discretization-scheme/tk {m['turb_kinetic']}",
@@ -143,14 +143,34 @@ def build_methods_lines(cfg: dict) -> list[str]:
         f"/solve/set/under-relaxation/{relax_names['k']} {m['relax_k']:.4g}",
         f"/solve/set/under-relaxation/{relax_names['epsilon']} {m['relax_epsilon']:.4g}",
     ]
+    # Fluent 内置残差判据 1e-3 会在 ~30 步自动停机（力收敛远滞后于残差，
+    # 真机 2026-09-28：29 步停机时 cd 还在演化）。压低判据让 n_iter 跑满；
+    # 两条候选路径都给，路径不存在时报 invalid command 但 journal 继续执行。
+    criteria = float((cfg.get("run") or {}).get("fluent_residual_criteria", 0) or 0)
+    if criteria > 0:
+        lines.append(f"/solve/convergence-criteria/residual-criteria {criteria:.6g}")
+    return lines
 
 
 def build_gravity_lines(cfg: dict) -> list[str]:
-    g = cfg["physics"].get("gravity")
+    """重力 + 标准大气（用户 2026-09-28 定案：有重力的标准大气）。
+
+    应答序列：Gravity?[no] -> yes -> X/Y/Z 分量三个数值（内联四答）。
+    operating_density=ρ_air（1.225）：均匀密度不可压流的浮力按标准惯例
+    从气动力中排除（specify-operating-density yes + operating-density ρ）；
+    若想保留浮力（升力含 ~4.4N 偏置），把 physics.operating_density 删掉即可。
+    """
+    ph = cfg.get("physics") or {}
+    g = ph.get("gravity")
     if not g:
         return []
     gx, gy, gz = (float(x) for x in g)
-    return [f"/define/operating-conditions/gravity yes {gx:.6g} {gy:.6g} {gz:.6g}"]
+    lines = [f"/define/operating-conditions/gravity yes {gx:.6g} {gy:.6g} {gz:.6g}"]
+    rho_op = ph.get("operating_density")
+    if rho_op:
+        lines.append("/define/operating-conditions/specify-operating-density yes")
+        lines.append(f"/define/operating-conditions/operating-density {float(rho_op):.6g}")
+    return lines
 
 
 def build_report_lines(cfg: dict) -> list[str]:
@@ -354,6 +374,15 @@ def render_journal(cfg: dict, params: dict | None, run_id: str, attempt: int) ->
     leftovers = PLACEHOLDER.findall(rendered)
     if leftovers:
         raise ValueError(f"模板存在未填充占位符: {leftovers}")
+    # Fluent 内置判据触发时会提前跳出 iterate；分段下发保证 n_iter 跑满
+    # （判据已由 methods 段压低，分段是双保险——判据命令路径不合法时仍能跑满）。
+    n_iter = int(cfg["run"]["n_iter"])
+    if n_iter >= 400:
+        chunk = 500
+        chunks = [f"/solve/iterate {min(chunk, n_iter - i * chunk)}"
+                  for i in range((n_iter + chunk - 1) // chunk)]
+        rendered = rendered.replace(f"/solve/iterate {n_iter}",
+                                    "\n".join(chunks))
     # 空行会让 Fluent 在当前菜单回显一次菜单列表（实测 v222），生成物压缩为无空行
     rendered = "\n".join(ln for ln in rendered.splitlines() if ln.strip()) + "\n"
     return rendered, mesh_path, sections["expected_steps"].split(",")

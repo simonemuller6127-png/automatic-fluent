@@ -16,7 +16,13 @@
   },
   "physics": {
     "model": "ke-standard",
-    "_gravity_note": "重力段暂关：/define/operating-conditions/gravity 的应答序列未真机校准（R 轨 200 迭代跑即无 gravity），不可压外流下对 cd 是二阶小量。P2 按校准流程定案后恢复 E10 映射 [0,0,-9.81]。"
+    "gravity": [
+      0.0,
+      0.0,
+      -9.81
+    ],
+    "operating_density": 1.225,
+    "_physics_note": "标准大气海平面：ρ=1.225 kg/m³、μ=1.789e-5（Fluent air 默认）、p_op=101325 Pa、g=-9.81。operating_density=ρ_air：均匀密度不可压流的浮力按标准惯例从气动力中排除（对 0.367m³ 的机体约 4.4N 升力偏置）；若要把浮力算进升力，删除 operating_density 键即可。z 向对称面与重力垂直，排除静水压头后自洽。"
   },
   "bc": {
     "inlet": {
@@ -80,7 +86,9 @@
       "residual_target": 0.001,
       "min_iter": 100
     },
-    "mesh_check": true
+    "mesh_check": true,
+    "fluent_residual_criteria": 1e-06,
+    "_criteria_note": "Fluent 内置残差判据 1e-3 会在 ~30 步自动停机（力收敛远滞后于残差），此键通过 convergence-criteria 命令压低到 1e-6，让 2000 迭代真正跑满、力值稳定。"
   },
   "objective": {
     "type": "coefficient_match",
