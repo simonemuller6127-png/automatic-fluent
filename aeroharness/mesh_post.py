@@ -339,7 +339,7 @@ def split_boundary_and_identify(cfg: dict, mesh_path: str | Path,
     tlog = workdir / "split.log"
     with open(tlog, "w", encoding="utf-8", errors="replace") as tf:
         proc = sp.Popen([str(exe), "3d", "-t4", "-g", "-i", str(jou)],
-                        stdout=tf, stderr=subprocess.STDOUT,
+                        stdout=tf, stderr=sp.STDOUT,
                         stdin=sp.DEVNULL, cwd=str(workdir))
         try:
             proc.wait(timeout=600)
