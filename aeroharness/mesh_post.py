@@ -335,7 +335,7 @@ def split_boundary_and_identify(cfg: dict, mesh_path: str | Path,
         f'/file/read-case "{src.as_posix()}"\n'
         f"/mesh/modify-zones/sep-face-zone-angle {outer_id} 40\n"
         "y\n"
-        f'/file/write-mesh "{split_mesh.as_posix()}"\n'
+        f'/file/write-case "{split_mesh.as_posix()}"\n'
         "exit\ny\n", encoding="utf-8")
     import subprocess as sp
     tlog = workdir / "split.log"
