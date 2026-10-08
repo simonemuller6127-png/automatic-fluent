@@ -1,0 +1,138 @@
+{
+  "software": "ANSYS Fluent 2023 R1",
+  "storyline": "一辆 50 m/s 定常外流的 F1 赛车，从启动走到可信的下压力/阻力报告。",
+  "steps": [
+    {
+      "id": "launch-case",
+      "title": "启动与新建算例",
+      "goal": "进 Solution 模式并选定求解器。",
+      "uiAction": "Launcher：Dimension=3D、Options 勾 Double Precision、Type=Solution、Processes=4，点 Start。回主界面双击 Setup 树 General 节点，确认 Solver=Pressure-Based、Time=Steady。",
+      "hints": ["找入口：开始菜单 → Fluent，别开 Workbench。", "坑：Type 误选 Meshing 就没 Setup 树，须退回重开。", "为什么：M≈0.15，压力基更稳。"],
+      "physics": "定常外流按质量守恒求解。低马赫下压力基比密度基稳且省内存。",
+      "threeD": "流线绕车，滑块调 50 m/s。",
+      "expected": "Setup 树出现，控制台无红字。"
+    },
+    {
+      "id": "read-geometry",
+      "title": "读入 F1 几何",
+      "goal": "读入车身并核对单位。",
+      "uiAction": "File → Read → Case & Data。Meshing 模式走 File → Import → Geometry，参数名写 FileName（不是 File Name），单位由 CAD 自身声明决定。",
+      "hints": ["找入口：File → Read 子菜单；TUI 写法 /file/read-case 等价。", "坑：报 File not found 多半是只读属性，去属性里取消。", "为什么：单位错三个量级，网格慢一百倍。"],
+      "physics": "几何不含流体域，F1 要的是把车当障碍物的域。",
+      "threeD": "WIREFRAME 看清前翼、后翼、底板、扩散器。",
+      "expected": "包围盒：车长 5.0~5.6 m、宽约 2.0 m。"
+    },
+    {
+      "id": "domain-sizing",
+      "title": "规划计算域与堵塞比",
+      "goal": "定域盒尺寸，堵塞比 <5%。",
+      "uiAction": "Watertight 流程 Import Geometry 后开 Details（或 CAD 端 Enclosure）：上游 2L、下游 6L、侧向每侧 2W、顶底各 2H，底部贴地留 0.2 m。校验 1.5 m² ÷ 入口截面积 <5%。",
+      "hints": ["找入口：Details 的 Max Length 字段。", "坑：下游只给 2L 必然回流。", "为什么：域太小放大阻力，太大浪费格子。"],
+      "physics": "堵塞比 <3~5% 时域边界扰动 <1%，可视为无限大流体。",
+      "threeD": "半透明域盒包住车身，滑块显示堵塞比。",
+      "expected": "域面能分成入口/出口/侧顶底/远场。"
+    },
+    {
+      "id": "surface-mesh",
+      "title": "表面网格与尾流 BOI",
+      "goal": "出表面网格并加密尾流。",
+      "uiAction": "Generate the Surface Mesh 的 Details：Size Functions 选 Curvature & Proximity（合法值只有 Curvature/Proximity/Curvature & Proximity，没有 Basic）；最小 5 mm、最大 150 mm、Growth Rate 1.2。再 Local Sizing → BOI，长条体包住后翼下游，Max Length 20 mm。",
+      "hints": ["找入口：Details 网格细节视图。", "坑：BOI 必须封闭，跨过车体把它切开会直接失败。", "为什么：翼端涡与扩散器尾迹是阻力主源。"],
+      "physics": "曲率加密让小半径细化，近距加密防缝隙被跨过；BOI 强制小网格穿控制体。",
+      "threeD": "网格线模式：翼端变密、BOI 内细而盒外粗。",
+      "expected": "无 Failed Faces、自由边 0，底板通道更密。"
+    },
+    {
+      "id": "describe-volume-mesh",
+      "title": "描述几何、体网格与质量检查",
+      "goal": "声明域类型、命名面组、查网格质量。",
+      "uiAction": "Describe Geometry 的 Details 里 Setup Type 选第 3 项 both fluid and solid regions and/or voids（选第 1 项会把域面吞成 interior）；Update Boundaries 重命名 inlet/outlet/ground/car-skin/farfield-*。再 Generate the Volume Mesh，Cell Type=poly-hexcore。写完 Case & Data 切回 Solution，双击 Mesh 节点点 Check。",
+      "hints": ["找入口：Meshing 树 Describe Geometry 节点。", "坑：fluid regions with voids 是非法串，选错会漏出 freeparts 面。", "为什么：正交质量 <0.1 残差必发散。"],
+      "physics": "Setup Type 决定内腔判 fluid 还是 solid，判错求解器直接拒绝；poly-hexcore 近壁保精度、远场省单元。",
+      "threeD": "面组上色，再剖切看车底网格。",
+      "expected": "面组齐全、泄漏 0；Orthogonal Quality >0.15、Skewness <0.90。"
+    },
+    {
+      "id": "general-materials",
+      "title": "材料与操作压力",
+      "goal": "定空气物性与压力基准。",
+      "uiAction": "双击 Materials → Fluid → air：Density=constant 1.225 kg/m³、Viscosity=1.7894e-05 kg/(m·s)；General 面板 Operating Pressure=101325 Pa。",
+      "hints": ["找入口：Materials 节点，双击 air。", "坑：要用 pressure-far-field 必须改 ideal-gas，否则求解前被拒。", "为什么：操作压力把表压与绝对压分开。"],
+      "physics": "设 operating pressure 后按表压求解，报告只输出压差，与风洞表压测力一致。",
+      "threeD": "高度场滑块切 1.225/0.914 kg/m³，看 Cp 色标平移。",
+      "expected": "密度与黏度为设定值、Operating Pressure 生效。"
+    },
+    {
+      "id": "turbulence-model",
+      "title": "选湍流模型并关掉能量方程",
+      "goal": "在 SST 与 k-epsilon 间做选择。",
+      "uiAction": "双击 Models → Viscous：Model 由 Laminar 改选 k-omega，其下 k-omega Model=SST、勾 Production Limiter、Near-Wall Treatment=Wall Function，k 与 omega 速率选 Compute per Unit Mass。Models → Energy 保持 Off。",
+      "hints": ["找入口：Models → Viscous，选 k-omega 后 SST 才出现。", "坑：读网格后常已被默认激活成 k-omega，必须显式改。", "为什么：有分离/逆压梯度选 SST；无梯度自由流选 k-epsilon。"],
+      "physics": "能量方程解温度场，F1 外气动等温无浮升力，开它只增未知量。SST 近壁 k-omega 衰减到壁面，能预测逆压梯度下的分离。",
+      "threeD": "并排对比：层流无尾涡、k-epsilon 尾流宽、SST 贴近并带下洗。",
+      "expected": "Viscous=k-omega(SST) 且 Energy=off，残差表出六项。"
+    },
+    {
+      "id": "boundary-conditions",
+      "title": "设置五类边界条件",
+      "goal": "配齐入口、出口、车身、地面、远场。",
+      "uiAction": "双击 Boundary Conditions 里各 zone：inlet→velocity-inlet，Momentum 选项卡 Velocity Specification Method=Magnitude and Direction，X=50、Y=Z=0，Turbulence 选项卡 Intensity and Viscosity Ratio 5%/10；outlet→pressure-outlet，Gauge Pressure=0；car-skin 与 ground→wall，Wall Conditions→Momentum 选项卡 Shear Condition=Slip；farfield-*→symmetry。",
+      "hints": ["找入口：Boundary Conditions 展开是 zone 列表，双击 zone 名。", "坑：侧顶底板设 velocity-inlet 会沿 ±y/±z 对吹致出口 39% 回流。", "为什么：移动地面坐标系下地面是自由滑移壁面。"],
+      "physics": "速度入口与压力出口必须成对使用。Slip 壁面摩擦为零只传法向压力，正是下压力来源。",
+      "threeD": "点选 zone：入口蓝箭头 50 m/s、出口绿抽离、地面橙 Slip 标签。",
+      "expected": "无 BC warning，侧顶底板确为 symmetry。"
+    },
+    {
+      "id": "initialize-run",
+      "title": "初始化、参考值与收敛设置",
+      "goal": "定系数分母、初始化、定迭代数。",
+      "uiAction": "双击 Reference Values：Density=1.225、Velocity=50、Area=1.5 m²（迎风投影）、Length=5.0 m。双击 Initialization：Standard Initialization、Compute from=inlet、点 Initialize。Run Calculation 设 Number of Iterations=800；Solution 的 Convergence Criteria 里 continuity 1e-4、动量与 k/omega 1e-3。",
+      "hints": ["找入口：判据在 Solution 节点，不在 Run Calculation 面板。", "坑：Area 填侧投影面积会把 Cd 放大数倍；漏设参考值沿用默认 1 m²。", "为什么：分母错了所有对比作废。"],
+      "physics": "Cd = Fx/(0.5·ρ·U²·A)。50 m/s 动压 q = 0.5×1.225×2500 = 1531 Pa，这是后处理换算基准。",
+      "threeD": "右侧浮出残差曲线，动压换算尺对照 kN 与 Cd。",
+      "expected": "参考值四项已填、初始流场已生成、显示 800 iterations。"
+    },
+    {
+      "id": "solve-converge",
+      "title": "迭代求解与收敛判读",
+      "goal": "跑到收敛，三条证据齐。",
+      "uiAction": "Run Calculation 点 Calculate，看 Residual Monitors。迭代中开 Results → Reports → Reports → Fluxes，同时选 inlet 与 outlet 比 Mass Flow Rate。重复 3~4 轮「迭代 200 次 + 查质量流量 + 查力报告」。",
+      "hints": ["找入口：Fluxes 在 Results 树 Reports 节点，须同勾 inlet 和 outlet。", "坑：残差掉了但 Cd 还在漂就是未真收敛；出口质量流量为负说明回流。", "为什么：残差是方程不平衡量，物理量平稳才真正可用。"],
+      "physics": "continuity 到 1e-4、动量与湍流量到 1e-3 说明已耦合到稳态；质量守恒是与残差独立的第二重验证。",
+      "threeD": "按迭代播放：流场从无滑移初值演化成稳定绕流。",
+      "expected": "残差 20 步不升；进出质量流量差 <0.1%；两次力报告差 <0.5%。"
+    },
+    {
+      "id": "post-contour-force",
+      "title": "后处理云图与气动力报告",
+      "goal": "出 Cp 云图、流线、尾流，拿到下压力与阻力。",
+      "uiAction": "Results 树 → Graphics → Contours：Contours of=Pressure Coefficient，Surfaces 只勾 car-skin，点 Display。再开 Pathlines：Pathlines of=Velocity，从 inlet 释放、Paths=500。然后 Reports → Reports → Forces：勾 Cd/Cl，Surfaces 选 car-skin 与 ground，Force Vector 设 Drag=(1,0,0)、Lift=(0,0,-1)，点 Compute。最后建 Report Definition 画历史曲线。",
+      "hints": ["找入口：Results 树 Graphics 与 Reports 两个子节点。", "坑：Lift 必须给 (0,0,-1)，给 +1 会得到负下压力。", "为什么：受力面要含 car-skin + ground，漏地面少一大块下压力。"],
+      "physics": "气动力 = 壁面静压积分 + 剪切应力积分。F1 以压力项绝对主导，地面几乎不产摩擦力。",
+      "threeD": "切换 Cp 云图（车头蓝高压→底板红负压→尾流橙高压）、绕飞流线、翼端涡下洗，叠加红色向后与绿色向下的受力箭头。",
+      "expected": "Cd 0.9~1.3、阻力约 2~2.5 kN；下压力 Cl 约 5~10、约 10~23 kN。"
+    }
+  ],
+  "mustHaveUI": [
+    "Fluent Launcher：Dimension=3D、Options 勾 Double Precision、Type 下拉选 Solution/Meshing、Processes 输入框",
+    "左侧 Setup 树：General/Models/Materials/Cell Zone Conditions/Boundary Conditions/Mesh/Reference Values/Report Definitions/Initialization/Run Calculation/Solution/Results",
+    "General 面板：Solver=Pressure-Based、Time=Steady、Operating Pressure 输入框",
+    "Models → Viscous：Model 下拉（Inviscid/Laminar/k-epsilon/k-omega）与 k-epsilon Model / k-omega Model(SST) 二级选项、Production Limiter 复选框、Near-Wall Treatment 下拉",
+    "Models → Energy 开关（默认 Off）与 Energy Options 展开区",
+    "Materials → Fluid → air 的 Properties 页：Density/Viscosity/Cp 字段与 constant / ideal-gas 下拉",
+    "Boundary Conditions 的 zone 列表与编辑面板：Type 下拉（velocity-inlet/pressure-outlet/wall/symmetry/pressure-far-field）及 Momentum/Turbulence/Thermal 选项卡",
+    "wall 面板 Wall Conditions → Momentum 选项卡内 Shear Condition 单选 No Slip / Slip",
+    "Reference Values 面板：Density / Velocity / Area / Length 输入框",
+    "Initialization（Standard Initialization、Compute from、Initialize）与 Run Calculation（Number of Iterations、Calculate）面板",
+    "Solution → Residual Monitors 残差图与 Convergence Criteria 的 Absolute Criteria 列",
+    "Results 树 → Graphics → Contours/Pathlines 面板，及 Reports → Reports → Forces 的 Cd/Cl 复选框、Force Vector 分量与 Compute/Write 按钮"
+  ],
+  "threeDDemos": [
+    "绕车身三维流线：前翼与底板前缘加速、上下绕流、尾部汇聚成尾迹，50 m/s 滑块实时改场",
+    "地面效应：车底通道流速升高形成下洗，地面 Slip 壁面无摩擦拖尾",
+    "Cp 云图切换：车头高压→底板低压→尾流高压，随 Contours of 下拉实时重算",
+    "尾流涡系：后轮与翼端分离出小涡，随下游距离增长、耗散、破碎，可剖切追踪涡量",
+    "网格剖视：中心面剖切看到车底与地面之间仅几层网格，BOI 长条体内明显更细",
+    "力矢量与收敛：车身叠加 Drag/Lift 箭头且长度随迭代变化，残差下降与力曲线走平同步演示"
+  ]
+}

@@ -46,11 +46,11 @@ fluent.exe 不传也行：`doctor` 会用内置 `discover_fluent_exe()` 扫描�
 | `fluent.exe` | `D:/Ansys-2023R1/ANSYS Inc/v222/...` | `--set fluent.exe=...` 或改 config |
 | `fluent.parallel` | 4 | 按 CPU 核数调 |
 | `run.n_iter` | 2000 | 首次校准可先 500 |
-| 源构型 `geometry.cad_step` | `examples/jigefeiji.STEP`（仓库内置） | 换成自己的机型：放一个 STEP 进去改路径 |
+| 源构型 `geometry.cad_step` | `private/jigefeiji.STEP`（**不入库**，见下） | **机型文件不随仓库分发**：各主机把（自己的）模型放到 `private/` 并保证路径一致 |
 
 ## 仓库自带内容 vs 运行时生成
 
-- **入库**：代码、配置、`examples/jigefeiji.STEP`（示例机型）、`geom_baseline/`（已验证的干净域基线）、模板、文档。
+- **入库**：代码、配置、模板、文档。**机型文件不入库**：私有机型请放到 `private/`（已被 .gitignore 排除），`geometry.cad_step` 指向它；`.gitignore` 的 `meshes/jigefeiji*` 保证网格产物也不会误入库。
 - **不入库（新主机自动生成）**：`runs/`、`meshes/*.msh.h5`、`meshes/*_split.cas.h5` 等网格产物、Fluent 会话日志。.gitignore 已全部覆盖。
 
 ## 遇到问题的标准动作

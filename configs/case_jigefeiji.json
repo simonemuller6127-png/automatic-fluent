@@ -105,7 +105,7 @@
     "_note": "targets 为占位（来流 50m/s、未知参考面积）；首跑出 cd/cl 基线后回填，用于 optimize 的收敛判据。"
   },
   "geometry": {
-    "cad_step": "examples/jigefeiji.STEP",
+    "cad_step": "private/jigefeiji.STEP",
     "builder": "single",
     "core_margin_mm": 50.0,
     "_note": "干净构型 STEP 路径。① 文件不能带只读属性，否则 Fluent 报成 'not found'。② bridge_gaps 闭合多实体装配间隙（真机：垂尾与水平尾翼间 25.6mm，不桥接则 surface mesh 报 3-free-edges 失败）。ext_gap 必须为 0——外扩会在部件表面留下 1mm 碎片面，让体网格八叉树追细到分钟级。",
@@ -123,7 +123,7 @@
     "_bridge_note": "ext_proj 必须为 0：1mm 咬合会在部件表面留碎片面，单体域 surface mesh 直接失败（真机 2026-09-28）。零碎片构造已在参数扫描中验证。",
     "depth_mm": 0.0,
     "_depth_note": "桥接体沿分离轴精确跨间隙（depth=0）：嵌入部件 30mm 的版本会留近重合面残留，tessellation 非保角 -> Free faces（真机 2026-09-28）。",
-    "_share_note": "源构型随仓库分发（examples/，相对路径自动解析到仓库根）。对方机器 fluent.exe 路径不同时：python run_pipeline.py pipeline --config configs/case_jigefeiji.json --set fluent.exe=D:/你的/path/fluent.exe 或直接改 fluent.exe。"
+    "_share_note": "机型文件不入库（私有机型）。各主机把自己的模型放到 private/ 下并改此路径即可；private/ 已被 .gitignore 排除。该机器本地已放置 private/jigefeiji.STEP。"
   },
   "pipeline": {
     "geometry": {

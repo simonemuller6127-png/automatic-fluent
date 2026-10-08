@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+/* 开机自诊断：本文件可能被单独发送到别的电脑上打开，任何启动错误都直接显示在页面底部，
+   避免对方只看到白屏无从下手。正常启动后本脚本不会产生任何可见内容。 */
+(function () {
+  function show(msg) {
+    var d = document.getElementById('bootError');
+    if (!d) {
+      d = document.createElement('div');
+      d.id = 'bootError';
+      d.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:99999;max-height:45%;overflow:auto;' +
+        'background:#7a1f1f;color:#fff;font:13px/1.6 Consolas,monospace;padding:10px 14px;white-space:pre-wrap;';
+      (document.body || document.documentElement).appendChild(d);
+    }
+    d.textContent += msg + '\n';
+  }
+  window.addEventListener('error', function (e) {
+    show('[启动诊断] 脚本出错: ' + (e && e.message ? e.message : e) +
+      (e && e.filename ? '\n  位置: ' + e.filename.split('/').pop() + ':' + e.lineno : ''));
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    show('[启动诊断] 未处理的 Promise 异常: ' + (e && e.reason ? e.reason : e));
+  });
+})();
+</script>
+<title>CAE 虚拟仿真实训平台 · Fluent / Mechanical / Zemax 交互式教程</title>
+<meta name="description" content="纯前端、零构建的中文互动教学网站：在网页里完整走通 ANSYS Fluent 外流场、ANSYS Mechanical 结构力学、Zemax OpticStudio 光学设计三个经典工作流。">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<!-- 启动遮罩：init() 跑完由 app.js 隐藏 -->
+<div class="boot-mask" id="bootMask">
+  <div>正在加载 CAE 虚拟仿真实训平台…</div>
+</div>
+
+<noscript>
+  <div style="padding:40px;color:#dfe4ea;font-family:sans-serif">
+    本站是纯前端互动教学页面，需要启用 JavaScript 才能运行。请在浏览器设置中开启 JavaScript 后刷新。
+  </div>
+</noscript>
+
+<div class="app">
+
+  <!-- ===================== 顶部品牌栏 ===================== -->
+  <header class="brand-bar">
+    <span class="brand-mark">CAE 虚拟仿真实训平台</span>
+    <span class="brand-sub">零构建 · 纯前端 · 全部几何由代码生成</span>
+    <span class="brand-spacer"></span>
+    <span class="brand-sub">提示：左键旋转视口 · 滚轮缩放 · 右键平移</span>
+  </header>
+
+  <!-- ===================== 模块标签页 ===================== -->
+  <!-- 三个 tab 的 --tab-accent 会被 app.js 用 registerModule 里的 accent 覆盖 -->
+  <nav class="module-tabs" id="moduleTabs">
+    <button class="tab" type="button" data-module="fluent"   style="--tab-accent:#19b5a5"></button>
+    <button class="tab" type="button" data-module="mechanical" style="--tab-accent:#e8833a"></button>
+    <button class="tab" type="button" data-module="zemax"    style="--tab-accent:#7c6cf0"></button>
+  </nav>
+
+  <!-- ===================== 三栏工作区 ===================== -->
+  <main class="workspace">
+
+    <!-- ---------- 左栏 240px：步骤导航 ---------- -->
+    <aside class="col col-left">
+      <div class="panel">
+        <div class="panel-hd">
+          <span>教学步骤</span>
+          <span class="spacer"></span>
+          <button class="btn btn-sm btn-ghost" id="resetProgress" type="button">重置</button>
+        </div>
+        <div class="progress-wrap">
+          <div class="progress-line">
+            <span id="progressText">暂无步骤</span>
+            <span>学习进度</span>
+          </div>
+          <div class="progress-bar"><i id="progressFill"></i></div>
+        </div>
+        <ol class="step-list" id="stepList"></ol>
+      </div>
+    </aside>
+
+    <!-- ---------- 中栏：伪软件窗口 ---------- -->
+    <section class="col col-center">
+      <div class="sim-window">
+        <div class="sim-titlebar">
+          <span class="dot"></span>
+          <span class="sim-title" id="simTitle">CAE 虚拟仿真实训平台</span>
+          <span class="sep">—</span>
+          <span id="simTagline">请选择上方标签页开始学习</span>
+          <span class="sim-window-actions"><span></span><span></span><span></span></span>
+        </div>
+
+        <!-- 模块容器：app.js 会为每个模块在这里插入一个 .mod-host -->
+        <div class="sim-stage" id="moduleHost"></div>
+
+        <!-- 占位伪终端：真正的 .console 由 app.js 为每个模块动态创建并插在这个位置之前 -->
+        <div id="simConsole" style="display:none"></div>
+
+        <div class="status-bar" id="statusBar">就绪</div>
+      </div>
+    </section>
+
+    <!-- ---------- 右栏 340px：教学卡 ---------- -->
+    <aside class="col col-right">
+      <div class="panel" id="stepCard"></div>
+    </aside>
+
+  </main>
+</div>
+
+<!-- 全局 Toast 容器 -->
+<div class="toast-wrap" id="toastWrap"></div>
+
+<!-- ==========================================================================
+     脚本（全部经典 script，顺序固定：引擎 → 平台 → 三个模块）
+     ========================================================================== -->
+
+<!-- 1) three.js r128 UMD（全局 THREE）。本地文件不存在时用 CDN 兜底 -->
+<script src="libs/three.min.js"></script>
+<script>window.THREE || document.write('<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"><\/script>');</script>
+
+<!-- 2) 3D 视口基础设施（含自写轨道控制器） -->
+<script src="js/three-setup.js"></script>
+
+<!-- 3) 平台骨架与教学引擎（window.CAE） -->
+<script src="js/app.js"></script>
+
+<!-- 4) 三个模块（各自 CAE.registerModule，标签页首次激活时才跑 build） -->
+<script src="js/fluent.js"></script>
+<script src="js/mechanical.js"></script>
+<script src="js/zemax.js"></script>
+
+</body>
+</html>

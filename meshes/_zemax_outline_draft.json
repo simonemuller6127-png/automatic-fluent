@@ -1,0 +1,169 @@
+{
+  "software": "Ansys Zemax OpticStudio(序列模式)",
+  "storyline": "从空白镜头文件到 MTF 曲线:亲手把一串曲率半径、厚度和玻璃名调成一支 200mm F2.8 长焦。",
+  "steps": [
+    {
+      "id": "open-workspace",
+      "title": "新建序列模式文件与三窗布局",
+      "goal": "启动 OpticStudio,新建空的序列模式镜头文件,认清三个主窗口各管什么。",
+      "uiAction": "启动 OpticStudio → 菜单 File > New > Optics… → 弹窗选 Lens File、文件名填 70-200F28.zmx → 确认左侧 System Explorer(系统资源管理器)、中央 Lens Data Editor(镜头数据编辑器,简称 LDE)、右侧 3D Layout(3D 布局)三窗都在。",
+      "hints": [
+        "三窗不见了:View(视图)菜单里重新勾 System Explorer / 3D Layout。",
+        "别选 Black Box(黑盒)或 Sequential Imaging——我们要单光路序列模式。",
+        "LDE 是数据表,3D 布局里才是真实镜片实体。"
+      ],
+      "physics": "序列模式只追一条光路,从物面 OBJ 一路走到像面 IMG,中途每过一面按 Snell 定律折射一次。所以任何一面的参数都会沿光路累积到最终焦点,不存在无关面。",
+      "threeD": "视口先给一条空光轴和 OBJ / IMG 两端标记,可绕轴旋转,还没有玻璃体。",
+      "expected": "LDE 出现第 0 行 OBJ 与最后一行 IMG,中间是空的。"
+    },
+    {
+      "id": "system-specs",
+      "title": "系统选项:入瞳、波长、视场",
+      "goal": "在 System Explorer 三个页签里把口径、光谱和视场定死,这是后面一切计算的边界条件。",
+      "uiAction": "System Explorer > Aperture(光孔)页:Entrance Pupil Diameter 填 71.43(=200/2.8),Stop Surface 选第 6 面;Wavelengths(波长)页:三行填 0.486 µm、0.588 µm(勾 Primary)、0.656 µm;Fields(视场)页:Field Type 选 Object Space Angle(物方角度)、单位 Degrees,三行填 0、14、20。",
+      "hints": [
+        "Aperture 页最容易漏 Stop Surface,光阑不在中位会算错通光量。",
+        "波长单位是微米(µm),填 486 会放大一千倍。",
+        "长焦镜头物在无穷远,视场用角度不用物高,两者互不通用。"
+      ],
+      "physics": "入瞳直径 200/2.8≈71.4 mm 锁定 F 数,也决定球差与彗差有多大;F/d/C 三色(656/588/486 nm)复现人眼最敏感的谱段,消色差必须同时对三色成立。",
+      "threeD": "拖入瞳直径滑块 25→71.4 mm,光束口径同步变粗;三色光线以红黄蓝着色,能看出色散把焦点拉开的距离。",
+      "expected": "三个页签不再有空行;点应用后视场边缘光线明显抬高变宽。"
+    },
+    {
+      "id": "lde-basics",
+      "title": "读懂 LDE 各列:半径、厚度、玻璃、半口径",
+      "goal": "先用一片玩具透镜把改一个参数到光路变化的因果链亲手跑通,再动真结构。",
+      "uiAction": "LDE 列头依次是 Surface(面号)、Type(类型)、Comment(注释)、Radius(曲率半径)、Thickness(厚度)、Glass(玻璃)、Semi-Diameter(半口径)、Conic(锥度)、Solve Type(求解类型);在 IMG 前空行填 Radius 50、Thickness 5、Glass N-BK7、Semi-Diameter 25。",
+      "hints": [
+        "Radius 格里留空直接按 Enter 等于半径无穷大即平面镜,这是最常用的快捷输入。",
+        "玻璃后面的面用负厚度表示虚间距(凹透镜组),负数不是错误。",
+        "半口径填小了会报 ray trace error(追迹错误)或边缘光线直接消失。"
+      ],
+      "physics": "半径 R 决定该面光焦度 φ=(n−1)/R,R 越大面越平、越接近平行平板;玻璃换掉折射率与色散;厚度决定下一面到本面的轴向距离。三者一起决定光线偏折角与会聚位置。",
+      "threeD": "拖动该面半径滑块,镜片在 3D 布局里变鼓或变凹,后方焦点同步前后移动;半径拖到无穷大,面立刻变成平板。",
+      "expected": "3D 布局出现一片玻璃,读出可解释的焦距,改半径焦点跟着动。"
+    },
+    {
+      "id": "glass-semidiameter",
+      "title": "玻璃目录与半口径",
+      "goal": "学会查玻璃的折射率与色散,选冕牌加火石的搭配,为消色差打基础。",
+      "uiAction": "点 Glass 格右侧的玻璃查找(Glass Catalog)按钮 → 玻璃目录窗口把 Columns 选成 nd、vd,查 N-BK7(nd≈1.5168,vd≈64.17)、N-SF5(nd≈1.6727,vd≈32.25)、N-LAK8(nd≈1.6910,vd≈54.71)→ 关闭后回 LDE 把每面 Semi-Diameter 改到大于实际光线高度。",
+      "hints": [
+        "Glass 格里直接键入玻璃名回车比翻目录快;名字拼错会静默退回空气。",
+        "vd 越小色散越强,火石负责提供负色差抵消冕牌的正色差。",
+        "半口径只影响通光与渐晕,不影响理想焦距,填小了会误判渐晕。"
+      ],
+      "physics": "冕牌低色散、是消色差的主体基底;火石色散强(低 vd),提供方向相反的色散把三个波长拉回同一点。半口径决定这面能接住多粗的光束,不够就截光。",
+      "threeD": "逐面切换玻璃,3D 视口里该片颜色变化,像面处的彩边随冕/火石组合收缩或张开。",
+      "expected": "每个玻璃面都能查到 nd/vd,且半口径大于追迹得到的光线高度。"
+    },
+    {
+      "id": "enter-prescription",
+      "title": "录入正-负-正远摄初始结构",
+      "goal": "把骨架敲进 LDE,先求结构成立,不求画质。",
+      "uiAction": "光标停在 IMG 行,Edit(编辑)菜单 > Insert Surface(插入面)反复加到第 8 面;逐行填:S1 R=250 厚 12 N-BK7;S2 R=120 厚 3.5 N-SF5;S3 R=-500 厚 45 空气;S4 R=-180 厚 4.5 N-LAK8(负片);S5 R=-90 厚 60 空气;S6 R=150 厚 8 N-BK7;S7 R=400 厚 3 N-SF5 胶合;S8 R=-120 厚 150 空气。",
+      "hints": [
+        "插入面发生在当前行与上一行之间,先确认光标行,插错位置光路顺序就乱。",
+        "空 Glass 表示空气(air),不是漏填。",
+        "三组之间的厚(45、60)是变焦移动组要动的自由度,先别锁。"
+      ],
+      "physics": "远摄(反远摄)结构是正-负-正:中间负组把主平面推到镜筒之后,让后截距大于镜筒总长,200mm 长焦才塞得进短镜筒;前后两组正透镜收拢大角度光线。",
+      "threeD": "3D 布局里长出胖-瘦-胖三组玻璃体,组间空气间隔与胶合面清晰可见,整体呈明显反远摄轮廓。",
+      "expected": "3D 布局有 3 组共 7 片玻璃,末面到 IMG 的距离即后截距,能读出非零系统焦距。"
+    },
+    {
+      "id": "raytrace-first-order",
+      "title": "单光线追迹与一阶性质",
+      "goal": "亲手追一根边缘光线,并把账面焦距与真实焦点分开看。",
+      "uiAction": "菜单 System(系统)> Ray Trace(光线追迹)> Single Rays(单光线追迹):选 Field 2(14°)、Y=1.0、点 Trace(追迹);再点 3D 布局工具栏的 FFD(一阶性质)按钮,读 EFL(有效焦距)、BFD(后截距)、F/#、Distortion(畸变)。",
+      "hints": [
+        "FFD 只算近轴光,给的 EFL 永远比布局里看到的交叉点长,这不是错。",
+        "Y 填 1.0 是归一化孔径高度即边缘光线,填 0.1 更接近近轴。",
+        "FFD 的 F/# 用当前入瞳直径算,变焦时会跟着变。"
+      ],
+      "physics": "近轴光线的拐点严格按面光焦度算,高次光在真实球面偏折更少,所以边缘光线交叉点比 EFL 对应位置更靠前,这差值就是球差。EFL 是账面参数,真实成像好坏只能靠实光线判断。",
+      "threeD": "视口里一根高次光线从 OBJ 斜穿整个系统打到像面,转视角能看见光束在镜筒里的腰形,以及高次光线在 IMG 之前就已交叉。",
+      "expected": "FFD 窗口给出 EFL、BFD、F/#、畸变四个数,EFL 与 200 有差距但非零。"
+    },
+    {
+      "id": "spot-baseline",
+      "title": "点列图:把糊变成数字",
+      "goal": "建立优化前基线,用 RMS 光斑半径给这套结构一个可比的起点。",
+      "uiAction": "Analysis(分析)菜单或 Analyses(分析)工具栏 > Spot Diagram(点列图):Settings(设置)里 Type 选 Ray Trace(光线追迹)、点列数 36×36、渐晕 0.9,点 Show(显示) Plot;依次切 Field 1/2/3 读 RMS 半径(μm)。",
+      "hints": [
+        "必须选 Ray Trace 而非 Diffraction(衍射),衍射模式会叠加艾里斑盖住几何像差。",
+        "渐晕填 0.9 留边;填 1.0 时高孔径边缘光线容易不稳。",
+        "RMS 比最大光斑半径稳健,优化用它更不容易被异常点带跑。"
+      ],
+      "physics": "理想点应落成一个点,实际落成一斑,斑的 RMS 半径就是评价函数的靶子。0 视场主要暴露球差与色差,14°/20° 主要暴露彗差、像散与场曲,所以必须三视场一起看。",
+      "threeD": "视口并排显示三个视场斑形:0° 近圆形,14°/20° 带彗尾;拖某面半径滑块,斑形同步胀大或收缩。",
+      "expected": "三个视场各有 RMS 数值(通常几十到几百 μm),记下作为优化前基线。"
+    },
+    {
+      "id": "merit-function",
+      "title": "写评价函数",
+      "goal": "把想要什么翻译成优化器能算的标量函数,让软件知道焦距和光斑谁更要紧。",
+      "uiAction": "打开 Optimization(优化)工具栏的 Merit Function(评价函数)窗口:第 1 行 Type 选 Spot(光斑)、Operand 选 RMSP(RMS 光斑半径)、Weight 0.3、Target 0;第 2 行插入 EFFL(有效焦距)Weight 1、Target 200;第 3 行插入 MARG(边缘裕量)Target 0.1 作硬约束。",
+      "hints": [
+        "Target 填 0 表示越小越好;EFFL 必须填 200,否则会给你一支完全不是长焦的镜头。",
+        "Weight 是相对权重不是绝对值,常用 0.1~1 之间配比。",
+        "用 Insert Operand(插入操作数)工具挑 Operand,不要凭记忆敲缩写。"
+      ],
+      "physics": "优化不是让系统变好看,而是每轮算一个标量 MerF 并把它压小。权重表达优先级:焦距严格锁 200,光斑在焦距已定前提下尽量小;边缘裕量这类硬约束防止解跑到几何做不出来的地方。",
+      "threeD": "视口用一条代价条显示当前 MerF,改 Weight 时条形实时变长变短,对应这一项占多大分量。",
+      "expected": "Operand / Weight / Target 三列至少三行填满,MerF 有具体数值。"
+    },
+    {
+      "id": "optimize",
+      "title": "给自由度并开始优化",
+      "goal": "明确告诉优化器哪些面可以动,然后让它自己把 MerF 压下去。",
+      "uiAction": "在 LDE 里按住 Ctrl 选中要动的 Radius 单元格(至少覆盖 7 个面),点其 Solve Type 单元格 → 下拉选 Variable(变量);需限幅时在 Optimization 菜单打开 Variables(变量)窗口设上下限;点 Optimization 工具栏的 Start Optimization(开始优化)。",
+      "hints": [
+        "没设 Variable 的面在优化中完全不动,这是最常见的优化没反应原因。",
+        "半径是无界变量,给半径设上下限能防止解跑成天文数字。",
+        "先 File > Save As 另存一份再优化,随时能回到起始结构对比。"
+      ],
+      "physics": "优化器(Curved Surface、Straight Line 或默认阻尼最小二乘)只在你放开的自由度上搜索。半径是全局耦合变量,动一面时前后空气间隔与焦点都跟着变,所以面参数到光路再到斑形的因果链能被直接看到。",
+      "threeD": "视口播放优化动画:镜片面形随迭代连续变形,移动组厚度滑动,像面处光斑同步收缩,色差彩边逐渐对齐。",
+      "expected": "优化结束对话框出现,MerF 值明显下降,点列 RMS 进入个位数到几十 μm 量级。"
+    },
+    {
+      "id": "verify",
+      "title": "变焦位置、点列图与 MTF 终验",
+      "goal": "在 70/200 两端都复核一遍,用点列图和 MTF 两条独立证据确认结构可用。",
+      "uiAction": "选第 3、4 组之间(第 3 面 Thickness)的 Solve Type 选 Zoom(缩放,旧版在工具栏 Zoom 滑块),拖滑块在 200↔70mm 间扫;每停一格读 FFD 的 EFL,并在 System Explorer 把 EPD 改成 70/2.8=25 保持光圈;再开 Spot Diagram 与 Analysis > MTF(几何 MTF),看 30 lp/mm 处曲线;最后 File > Save As 存盘。",
+      "hints": [
+        "变焦时忘改 EPD,70mm 端 F/# 会变成约 0.98,光束粗到追迹不稳。",
+        "MTF 在离焦 0.02 mm 量级就会塌,别顺手拖动最后一面。",
+        "135 画幅的奈奎斯特极限约 25 lp/mm,30 lp/mm 已超出画幅物理极限,只看曲线形状与相对高低。"
+      ],
+      "physics": "MTF 是系统把黑白条纹对比度传给像面的能力,0 视场曲线最高、向边缘视场递减。几何 MTF 只反映像差不含衍射,所以能直接和点列图对上账:斑小则 MTF 高,两者互为佐证。",
+      "threeD": "视口把优化前后点列图并排对比,再叠一条 MTF 曲线并画出 30 lp/mm 竖线,线上三视场数值直接读出。",
+      "expected": "70/200 两端 EFL 读数分别在 200 与 70 附近,三视场 RMS 优于基线,30 lp/mm 处 0 视场曲线明显高于 0,文件已保存。"
+    }
+  ],
+  "mustHaveUI": [
+    "File > New > Optics… 新建光学文件对话框(Lens File / Black Box 选项)",
+    "System Explorer(系统资源管理器)左侧停靠窗与页签条",
+    "Aperture 页:Entrance Pupil Diameter 输入框、Stop Surface 下拉",
+    "Wavelengths 页:波长值(µm)表格与 Primary 复选框",
+    "Fields 页:Field Type = Object Space Angle 下拉与 Value (deg) 列",
+    "Lens Data Editor 列:Radius / Thickness / Glass / Semi-Diameter / Conic / Solve Type",
+    "LDE 底部 Edit 菜单的 Insert Surface(插入面)与 Delete Surface(删除面)",
+    "Solve Type 单元格下拉(Fix / Variable / Pickup / Zoom)",
+    "玻璃查找按钮与 Glass Catalog(玻璃目录)窗口的 nd / vd 列",
+    "System > Ray Trace > Single Rays(单光线追迹)对话框",
+    "3D 布局窗口工具栏的 FFD(一阶性质)按钮与参数表",
+    "Analysis 菜单下的 Spot Diagram(点列图)设置窗口与 MTF 曲线窗口",
+    "Optimization(优化)工具栏的 Start Optimization 按钮与 Merit Function 窗口的 Operand / Weight / Target 三列"
+  ],
+  "threeDDemos": [
+    "LDE 半径/厚度滑块驱动的镜片面形实时变形:程序化 lathe 生成球面,拖滑块看到曲率与焦点同步变化",
+    "OBJ→IMG 全光路三维光线束,0/14/20° 三视场可切换,边缘光线束在像面抬高",
+    "F/d/C 三色(656/588/486 nm)光线以红黄蓝着色穿透全系统,色散造成的焦点分离可视化",
+    "入瞳直径滑块改变光束口径,F/# 变粗时镜筒内出现渐晕边缘",
+    "变焦滑块驱动中间移动组沿光轴平移,70mm↔200mm 连续插值,FFD 焦距读数同步变化",
+    "优化动画:镜片面形逐轮迭代收敛,像面处光斑同步收缩、色差彩边对齐"
+  ]
+}

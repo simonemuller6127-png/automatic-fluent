@@ -39,3 +39,13 @@ meshes/*_workflow_files/
 
 # Fluent 会话错误日志（任意目录）
 **/fluent-*-error.log
+
+# ---- 私有机型（绝对不入库）----
+private/
+examples/*.STEP
+examples/*.step
+geom_baseline/
+meshes/jigefeiji*
+
+# ---- agent 会话状态 ----
+.zcode/
