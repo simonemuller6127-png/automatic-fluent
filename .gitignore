@@ -22,3 +22,20 @@ venv/
 .DS_Store
 Thumbs.db
 opt_trial.msh
+
+# ---- 网格产物（管线自动生成，不入库）----
+meshes/*.msh.h5
+meshes/*_split.cas.h5
+meshes/*_patched.msh.h5
+meshes/*.h5
+meshes/fluent-*.trn
+meshes/fluent-*.log
+meshes/fluent-0-error.log
+meshes/split.*
+meshes/*_workflow_files/
+
+# ---- 备份/会话杂项 ----
+*.bak
+
+# Fluent 会话错误日志（任意目录）
+**/fluent-*-error.log
